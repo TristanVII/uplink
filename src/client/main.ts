@@ -1,1 +1,8 @@
-// placeholder
+// Register service worker for PWA
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(err => {
+    console.warn('SW registration failed:', err);
+  });
+}
+
+console.log('Copilot Uplink ready');

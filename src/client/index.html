@@ -2,14 +2,27 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#238636">
+  <meta name="description" content="Remote control for GitHub Copilot CLI">
   <title>Copilot Uplink</title>
+  <link rel="manifest" href="./manifest.json">
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
   <div id="app">
-    <h1>Copilot Uplink</h1>
-    <p>Connecting...</p>
+    <header id="header">
+      <h1>⬆ Copilot Uplink</h1>
+      <div id="connection-status" class="status-disconnected">Disconnected</div>
+    </header>
+    <main id="chat-area">
+      <!-- Messages will be rendered here -->
+    </main>
+    <footer id="input-area">
+      <textarea id="prompt-input" placeholder="Send a message..." rows="1"></textarea>
+      <button id="send-btn" disabled>Send</button>
+      <button id="cancel-btn" hidden>Cancel</button>
+    </footer>
   </div>
   <script type="module" src="./main.ts"></script>
 </body>
