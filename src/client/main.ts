@@ -40,12 +40,12 @@ const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 // Fetch session token and connect
 async function initializeClient() {
   const tokenResponse = await fetch('/api/token');
-  const { token } = await tokenResponse.json();
+  const { token, cwd } = await tokenResponse.json();
   const wsUrl = `${wsProtocol}//${location.host}/ws?token=${encodeURIComponent(token)}`;
 
   const client = new AcpClient({
     wsUrl,
-    cwd: '.',
+    cwd,
     onStateChange: (state) => updateConnectionStatus(state),
     onSessionUpdate: (update) => conversation.handleSessionUpdate(update),
     onPermissionRequest: (request, respond) => {

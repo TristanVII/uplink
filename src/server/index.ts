@@ -24,9 +24,11 @@ export function startServer(options: ServerOptions): ServerResult {
   const port = options.port || 3000;
   const sessionToken = randomBytes(32).toString('hex');
 
+  const resolvedCwd = options.cwd || process.cwd();
+
   // Token endpoint (must be before SPA fallback)
   app.get('/api/token', (_req, res) => {
-    res.json({ token: sessionToken });
+    res.json({ token: sessionToken, cwd: resolvedCwd });
   });
   
   // Serve static files if configured
@@ -88,7 +90,7 @@ export function startServer(options: ServerOptions): ServerResult {
     const bridgeOptions: BridgeOptions = {
       command,
       args,
-      cwd: options.cwd || process.cwd(),
+      cwd: resolvedCwd,
     };
 
     console.log(`Spawning bridge: ${bridgeOptions.command} ${bridgeOptions.args.join(' ')}`);
