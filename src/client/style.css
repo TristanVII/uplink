@@ -371,6 +371,39 @@ button:disabled {
   to { transform: rotate(360deg); }
 }
 
+.plan-header {
+  padding: 0.5rem 0.75rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.plan-content {
+  flex: 1;
+}
+
+.plan-priority {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 10px;
+  text-transform: uppercase;
+  font-weight: bold;
+}
+
+.priority-high {
+  background-color: var(--danger);
+  color: #fff;
+}
+
+.priority-medium {
+  background-color: var(--warning);
+  color: #000;
+}
+
+.priority-low {
+  background-color: var(--text-secondary);
+  color: var(--bg-primary);
+}
+
 /* Mobile Responsive */
 @media (max-width: 600px) {
   #app {

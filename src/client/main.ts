@@ -3,6 +3,7 @@ import { Conversation } from './conversation.js';
 import { ChatUI } from './ui/chat.js';
 import { PermissionUI } from './ui/permission.js';
 import { ToolCallUI } from './ui/tool-call.js';
+import { PlanUI } from './ui/plan.js';
 
 // Register service worker for PWA
 if ('serviceWorker' in navigator) {
@@ -29,6 +30,9 @@ const toolCallUI = new ToolCallUI(
   conversation,
 );
 toolCallUI.attach();
+
+const planUI = new PlanUI(chatArea, conversation);
+planUI.attach();
 
 // Determine WS URL (same origin)
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
