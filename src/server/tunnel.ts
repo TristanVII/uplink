@@ -133,6 +133,11 @@ export async function startTunnel(options: TunnelOptions): Promise<TunnelResult>
         message += `\n${stderrLog.trim()}`;
       }
 
+      // Surface actionable hints for common errors
+      if (/unauthorized|not permitted|does not have.*access/i.test(stderrLog)) {
+        message += '\n\nFix: run `devtunnel user login` to authenticate.';
+      }
+
       rejectWith(new Error(message));
     };
 
