@@ -66,7 +66,10 @@ export class Bridge {
     
     const payload = message.endsWith('\n') ? message : message + '\n';
     try {
-      this.child.stdin.write(payload);
+      const ok = this.child.stdin.write(payload);
+      if (!ok) {
+        console.warn('[Bridge] stdin backpressure detected');
+      }
     } catch (err) {
       console.error('[Bridge] Failed to write to stdin:', err);
     }

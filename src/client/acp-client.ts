@@ -35,7 +35,7 @@ const CLIENT_INFO = {
 type PendingRequest = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
-  timeoutId: ReturnType<typeof setTimeout>;
+  timeoutId?: ReturnType<typeof setTimeout>;
 };
 
 type StartCallbacks = {
@@ -113,6 +113,7 @@ export class AcpClient {
       const result = await this.sendRequest<SessionPromptResult>(
         "session/prompt",
         params,
+        0,
       );
       return result.stopReason;
     } finally {
@@ -414,7 +415,11 @@ export class AcpClient {
     );
   }
 
-  private sendRequest<T>(method: string, params: unknown): Promise<T> {
+  private sendRequest<T>(
+    method: string,
+    params: unknown,
+    timeoutMs?: number,
+  ): Promise<T> {
     if (!this.isSocketOpen()) {
       return Promise.reject(new Error("WebSocket is not open"));
     }
@@ -422,20 +427,29 @@ export class AcpClient {
     const id = this.nextRequestId++;
     const request = createRequest(id, method, params);
 
+    const effectiveTimeoutMs = timeoutMs ?? REQUEST_TIMEOUT_MS;
+
     return new Promise<T>((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        if (this.pendingRequests.delete(id)) {
-          reject(new Error(`Request "${method}" timed out`));
-        }
-      }, REQUEST_TIMEOUT_MS);
+      const timeoutId =
+        Number.isFinite(effectiveTimeoutMs) && effectiveTimeoutMs > 0
+          ? setTimeout(() => {
+              if (this.pendingRequests.delete(id)) {
+                reject(new Error(`Request "${method}" timed out`));
+              }
+            }, effectiveTimeoutMs)
+          : undefined;
 
       this.pendingRequests.set(id, {
         resolve: (value) => {
-          clearTimeout(timeoutId);
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
           resolve(value as T);
         },
         reject: (error) => {
-          clearTimeout(timeoutId);
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
           reject(error);
         },
         timeoutId,
