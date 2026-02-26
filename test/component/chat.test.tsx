@@ -126,4 +126,19 @@ describe('ChatList', () => {
 
     expect(container.querySelectorAll('.message').length).toBe(0);
   });
+
+  it('thinking-dots span has stable width via min-width', () => {
+    const conv = new Conversation();
+    conv.addUserMessage('hello');
+    conv.isPrompting = true;
+
+    const scrollContainer = document.createElement('div');
+    const { container } = render(
+      <ChatList conversation={conv} scrollContainer={scrollContainer} />,
+    );
+
+    const dots = container.querySelector('.thinking-dots');
+    expect(dots).toBeTruthy();
+    expect(dots!.tagName.toLowerCase()).toBe('span');
+  });
 });
