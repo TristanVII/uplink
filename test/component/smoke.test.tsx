@@ -1,9 +1,11 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/preact';
+import { describe, it, expect, afterEach } from 'vitest';
+import { render, screen, cleanup } from '@testing-library/preact';
 import { h } from 'preact';
+
+afterEach(cleanup);
 
 function Greeting({ name }: { name: string }) {
   return <span>Hello, {name}!</span>;

@@ -1,11 +1,12 @@
 import { AcpClient, ConnectionState } from './acp-client.js';
 import { Conversation } from './conversation.js';
 import { ChatUI } from './ui/chat.js';
-import { renderShellOutput } from './ui/shell.js';
+import { ShellOutput } from './ui/shell.js';
 import { PermissionUI } from './ui/permission.js';
 import { ToolCallUI } from './ui/tool-call.js';
 import { PlanUI } from './ui/plan.js';
 import { fetchSessions, createSessionListPanel } from './ui/sessions.js';
+import { render, h } from 'preact';
 
 // ─── Constants ────────────────────────────────────────────────────────
 
@@ -204,11 +205,15 @@ sendBtn.addEventListener('click', async () => {
         stderr: string;
         exitCode: number;
       }>('uplink/shell', { command });
-      chatArea.appendChild(renderShellOutput(command, result.stdout, result.stderr, result.exitCode));
+      const container = document.createElement('div');
+      chatArea.appendChild(container);
+      render(h(ShellOutput, { command, stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode }), container);
       chatUI.scrollToBottom();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      chatArea.appendChild(renderShellOutput(command, '', errorMessage, 1));
+      const container = document.createElement('div');
+      chatArea.appendChild(container);
+      render(h(ShellOutput, { command, stdout: '', stderr: errorMessage, exitCode: 1 }), container);
       chatUI.scrollToBottom();
     }
     return;
