@@ -360,4 +360,116 @@ describe('Conversation', () => {
       expect(conversation.plan).toBeNull();
     });
   });
+
+  describe('Timeline ordering — most recently updated item closest to bottom', () => {
+    it('agent message moves below tool call when text continues after tool call', () => {
+      // 1. Agent starts streaming
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'Let me check...' }
+      });
+      // Timeline: [msg-0]
+      expect(conversation.timeline).toEqual([
+        { type: 'message', index: 0 }
+      ]);
+
+      // 2. Tool call arrives
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'tc1',
+        title: 'Read file',
+        kind: 'read',
+        status: 'pending'
+      });
+      // Timeline: [msg-0, toolCall-tc1]
+      expect(conversation.timeline).toEqual([
+        { type: 'message', index: 0 },
+        { type: 'toolCall', toolCallId: 'tc1' }
+      ]);
+
+      // 3. Agent continues streaming after tool call
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: ' Here are the results.' }
+      });
+      // Timeline should now be: [toolCall-tc1, msg-0]
+      // The agent message moved to the bottom because it was most recently updated
+      expect(conversation.timeline).toEqual([
+        { type: 'toolCall', toolCallId: 'tc1' },
+        { type: 'message', index: 0 }
+      ]);
+    });
+
+    it('agent message moves below permission when text continues', () => {
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'I need to...' }
+      });
+      conversation.trackPermission(1, 'tc1', 'Allow?', [
+        { optionId: 'yes', name: 'Yes', kind: 'allow_once' }
+      ]);
+
+      // Agent resumes
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: ' Done.' }
+      });
+
+      expect(conversation.timeline).toEqual([
+        { type: 'permission', requestId: 1 },
+        { type: 'message', index: 0 }
+      ]);
+    });
+
+    it('message stays at end during normal streaming (no unnecessary reorder)', () => {
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'First chunk' }
+      });
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: ' second chunk' }
+      });
+
+      // Should still be a single entry at the end — no movement needed
+      expect(conversation.timeline).toEqual([
+        { type: 'message', index: 0 }
+      ]);
+    });
+
+    it('multiple tool calls interleaved with message', () => {
+      conversation.addUserMessage('hello');
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'Checking...' }
+      });
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'tc1',
+        title: 'Read',
+        kind: 'read',
+        status: 'pending'
+      });
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'tc2',
+        title: 'Write',
+        kind: 'edit',
+        status: 'pending'
+      });
+      // Agent resumes text
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: ' All done.' }
+      });
+
+      // User message stays first, agent message moves after both tool calls
+      expect(conversation.timeline).toEqual([
+        { type: 'message', index: 0 },  // user
+        { type: 'toolCall', toolCallId: 'tc1' },
+        { type: 'toolCall', toolCallId: 'tc2' },
+        { type: 'message', index: 1 }   // agent (moved to end)
+      ]);
+    });
+  });
 });

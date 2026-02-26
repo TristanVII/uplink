@@ -192,10 +192,21 @@ export class Conversation {
 
   // ─── Private helpers ──────────────────────────────────────────────
 
+  /** Move a timeline entry matching `predicate` to the end (most-recently-updated → closest to input). */
+  private moveToEnd(predicate: (e: TimelineEntry) => boolean): void {
+    const idx = this.timeline.findIndex(predicate);
+    if (idx >= 0 && idx < this.timeline.length - 1) {
+      const [entry] = this.timeline.splice(idx, 1);
+      this.timeline.push(entry);
+    }
+  }
+
   private appendAgentText(text: string): void {
     const last = this.messages[this.messages.length - 1];
     if (last?.role === "agent") {
       last.content += text;
+      const msgIndex = this.messages.length - 1;
+      this.moveToEnd((e) => e.type === "message" && e.index === msgIndex);
     } else if (text) {
       this.messages.push({ role: "agent", content: text, timestamp: Date.now() });
       this.timeline.push({ type: "message", index: this.messages.length - 1 });
@@ -206,6 +217,8 @@ export class Conversation {
     const last = this.messages[this.messages.length - 1];
     if (last?.role === "user") {
       last.content += text;
+      const msgIndex = this.messages.length - 1;
+      this.moveToEnd((e) => e.type === "message" && e.index === msgIndex);
     } else if (text) {
       this.messages.push({ role: "user", content: text, timestamp: Date.now() });
       this.timeline.push({ type: "message", index: this.messages.length - 1 });

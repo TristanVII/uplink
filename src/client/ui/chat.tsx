@@ -133,6 +133,15 @@ function TimelineItem({
   }
 }
 
+function timelineKey(entry: TimelineEntry): string {
+  switch (entry.type) {
+    case 'message': return `msg-${entry.index}`;
+    case 'toolCall': return `tc-${entry.toolCallId}`;
+    case 'permission': return `perm-${entry.requestId}`;
+    case 'plan': return 'plan';
+  }
+}
+
 /**
  * Renders the conversation timeline.
  * Subscribes to Conversation.onChange() to re-render on new messages/streaming.
@@ -163,8 +172,8 @@ export function ChatList({
 
   return (
     <>
-      {conversation.timeline.map((entry, i) => (
-        <TimelineItem key={i} entry={entry} conversation={conversation} />
+      {conversation.timeline.map((entry) => (
+        <TimelineItem key={timelineKey(entry)} entry={entry} conversation={conversation} />
       ))}
       {showThinking && (
         <div class="message agent thinking-indicator">
