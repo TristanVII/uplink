@@ -36,7 +36,7 @@ let yoloMode = localStorage.getItem('uplink-yolo') === 'true';
 
 // ─── Mode ─────────────────────────────────────────────────────────────
 
-type AgentMode = 'chat' | 'plan';
+type AgentMode = 'chat' | 'plan' | 'autopilot';
 let currentMode: AgentMode = (localStorage.getItem('uplink-mode') as AgentMode) ?? 'chat';
 
 function applyMode(mode: AgentMode): void {
@@ -274,7 +274,12 @@ sendBtn.addEventListener('click', async () => {
     : text;
 
   try {
-    await client.prompt(promptText);
+    let stopReason = await client.prompt(promptText);
+    // In autopilot mode, auto-continue when the agent ends its turn
+    while (currentMode === 'autopilot' && stopReason === 'end_turn') {
+      conversation.addUserMessage('continue');
+      stopReason = await client.prompt('continue');
+    }
   } catch (err) {
     console.error('Prompt error:', err);
   }

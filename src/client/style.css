@@ -482,6 +482,13 @@ pre code {
   border-color: var(--info);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--info) 25%, transparent);
 }
+[data-mode="autopilot"] #prompt-input {
+  border-color: var(--success);
+}
+[data-mode="autopilot"] #prompt-input:focus {
+  border-color: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 25%, transparent);
+}
 
 button {
   background-color: var(--accent);

@@ -299,3 +299,36 @@ test('mode selector changes input box border color', async ({ page }) => {
   await page.locator('#mode-select').selectOption('chat');
   await expect(html).toHaveAttribute('data-mode', 'chat');
 });
+
+test('autopilot mode auto-continues and shows green border', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  // Switch to autopilot mode
+  await page.locator('#menu-toggle').click();
+  await page.locator('#mode-select').selectOption('autopilot');
+  await page.keyboard.press('Escape');
+
+  const html = page.locator('html');
+  await expect(html).toHaveAttribute('data-mode', 'autopilot');
+
+  // Verify green border on input
+  const input = page.locator('#prompt-input');
+  await input.focus();
+  const borderColor = await input.evaluate(
+    (el) => getComputedStyle(el).borderColor,
+  );
+  // Should not be default mauve
+  expect(borderColor).not.toBe('rgb(203, 166, 247)');
+
+  // Send a message — autopilot should auto-continue once, then stop
+  await input.fill('hello');
+  await page.locator('#send-btn').click();
+
+  // Wait for auto-continuation message to appear
+  const continueMsg = page.locator('.message.user').filter({ hasText: 'continue' });
+  await expect(continueMsg).toBeVisible({ timeout: 10000 });
+
+  // Agent should have responded to the continue with a final message
+  await expect(page.locator('.message.agent').last()).toContainText('Done', { timeout: 10000 });
+});

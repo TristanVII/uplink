@@ -362,6 +362,10 @@ async function handleRequest(msg: JsonRpcRequest): Promise<void> {
         await scenarioReasoning(msg.id);
       } else if (text.startsWith("refuse")) {
         scenarioRefusal(msg.id);
+      } else if (text === "continue") {
+        // Autopilot continuation — respond with final message, no more turns
+        sendPromptChunk(msg.id, "Done, no more work to do.");
+        respondToPrompt(msg.id, { stopReason: "max_turn_requests" } satisfies SessionPromptResult);
       } else {
         await scenarioSimpleText(msg.id);
       }
