@@ -382,6 +382,13 @@ pre code {
   display: none;
 }
 
+/* TODO: Add a visual mode indicator on the prompt input box.
+   Copilot CLI uses colored outlines: blue for "plan" mode, green for "autopilot".
+   Implement by adding a CSS class per mode (e.g. .mode-plan, .mode-autopilot) that
+   overrides the border-color and box-shadow focus color on #prompt-input. The accent
+   color should shift subtly — e.g. Catppuccin Blue (#89b4fa / #1e66f5) for plan,
+   Green (#a6e3a1 / #40a02b) for autopilot — while keeping the default Mauve for
+   normal chat mode. */
 #prompt-input:focus {
   outline: none;
   border-color: var(--accent);
