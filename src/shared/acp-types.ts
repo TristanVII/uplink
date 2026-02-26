@@ -376,6 +376,18 @@ export function isSessionUpdatePlan(
   return u.sessionUpdate === "plan";
 }
 
+// ─── Session Info (returned by GET /api/sessions) ─────────────────────
+
+/** Metadata for a past session, as returned by the sessions API. */
+export interface SessionInfo {
+  id: string;
+  cwd: string;
+  branch: string | null;
+  summary: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ─── Message Construction Helpers ─────────────────────────────────────
 
 /** Create a JSON-RPC 2.0 request. */

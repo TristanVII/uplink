@@ -15,6 +15,10 @@
   <div id="app">
     <header id="header">
       <h1><img src="/icon.svg" alt="" width="24" height="24" class="header-icon"> Copilot Uplink</h1>
+      <select id="model-select" aria-label="Select AI model" title="Select model">
+        <option value="">Default</option>
+      </select>
+      <button id="sessions-btn" type="button" title="Sessions" aria-label="Sessions">📋</button>
       <button id="theme-toggle" type="button" aria-label="Toggle dark/light mode" title="Toggle theme">🌙</button>
       <div id="connection-status" class="status-disconnected">Disconnected</div>
     </header>

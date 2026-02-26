@@ -5,6 +5,7 @@ import { renderShellOutput } from './ui/shell.js';
 import { PermissionUI } from './ui/permission.js';
 import { ToolCallUI } from './ui/tool-call.js';
 import { PlanUI } from './ui/plan.js';
+import { fetchSessions, createSessionListPanel } from './ui/sessions.js';
 
 // Theme: initialize from localStorage or system preference
 function initTheme(): void {
@@ -23,6 +24,32 @@ function updateThemeIcon(theme: string): void {
 }
 
 initTheme();
+
+// Model selector
+const MODELS = [
+  'claude-sonnet-4.6', 'claude-sonnet-4.5', 'claude-haiku-4.5',
+  'claude-opus-4.6', 'claude-opus-4.6-fast', 'claude-opus-4.5',
+  'claude-sonnet-4', 'gemini-3-pro-preview', 'gpt-5.3-codex',
+  'gpt-5.2-codex', 'gpt-5.2', 'gpt-5.1-codex-max', 'gpt-5.1-codex',
+  'gpt-5.1', 'gpt-5.1-codex-mini', 'gpt-5-mini', 'gpt-4.1',
+];
+
+function initModelSelector(): void {
+  const select = document.getElementById('model-select') as HTMLSelectElement;
+  if (!select) return;
+
+  for (const model of MODELS) {
+    const option = document.createElement('option');
+    option.value = model;
+    option.textContent = model;
+    select.appendChild(option);
+  }
+
+  const saved = localStorage.getItem('uplink-model');
+  if (saved) select.value = saved;
+}
+
+initModelSelector();
 
 // Register service worker for PWA
 if ('serviceWorker' in navigator) {
@@ -60,7 +87,12 @@ const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 async function initializeClient() {
   const tokenResponse = await fetch('/api/token');
   const { token, cwd } = await tokenResponse.json();
-  const wsUrl = `${wsProtocol}//${location.host}/ws?token=${encodeURIComponent(token)}`;
+  clientCwd = cwd;
+  const savedModel = localStorage.getItem('uplink-model');
+  let wsUrl = `${wsProtocol}//${location.host}/ws?token=${encodeURIComponent(token)}`;
+  if (savedModel) {
+    wsUrl += `&model=${encodeURIComponent(savedModel)}`;
+  }
 
   const client = new AcpClient({
     wsUrl,
@@ -106,6 +138,7 @@ const sendBtn = document.getElementById('send-btn') as HTMLButtonElement;
 const cancelBtn = document.getElementById('cancel-btn') as HTMLButtonElement;
 
 let client: AcpClient | null = null;
+let clientCwd: string = '';
 
 sendBtn.addEventListener('click', async () => {
   const text = promptInput.value.trim();
@@ -158,6 +191,35 @@ themeToggle.addEventListener('click', () => {
   document.documentElement.className = next;
   localStorage.setItem('uplink-theme', next);
   updateThemeIcon(next);
+});
+
+// Sessions button
+const sessionsBtn = document.getElementById('sessions-btn')!;
+sessionsBtn.addEventListener('click', async () => {
+  if (!client || !clientCwd) return;
+
+  const sessions = await fetchSessions(clientCwd);
+  const panel = createSessionListPanel(
+    sessions,
+    client.supportsLoadSession,
+    {
+      onResume: async (sessionId) => {
+        try {
+          await client!.loadSession(sessionId);
+        } catch (err) {
+          console.error('Failed to load session:', err);
+        }
+      },
+      onNewSession: () => {
+        // Reconnect to start a fresh session
+        client!.disconnect();
+        client!.connect().catch((err) => {
+          console.error('Failed to create new session:', err);
+        });
+      },
+    },
+  );
+  document.body.appendChild(panel);
 });
 
 // Enter to send (Shift+Enter for newline)

@@ -4,6 +4,7 @@ import {
   parseMessage,
 } from "../shared/acp-types";
 import type {
+  AgentCapabilities,
   ClientCapabilities,
   InitializeResult,
   JsonRpcMessage,
@@ -12,6 +13,7 @@ import type {
   JsonRpcResponse,
   PermissionOutcome,
   SessionCancelParams,
+  SessionLoadParams,
   SessionNewResult,
   SessionPromptParams,
   SessionPromptResult,
@@ -81,11 +83,16 @@ export class AcpClient {
   private nextRequestId = 0;
   private readonly pendingRequests = new Map<number, PendingRequest>();
   private connectPromise?: Promise<void>;
+  private agentCapabilities: AgentCapabilities = {};
 
   constructor(private readonly options: AcpClientOptions) {}
 
   get connectionState(): ConnectionState {
     return this.state;
+  }
+
+  get supportsLoadSession(): boolean {
+    return this.agentCapabilities.loadSession === true;
   }
 
   connect(): Promise<void> {
@@ -96,6 +103,16 @@ export class AcpClient {
     this.shouldReconnect = true;
     this.clearReconnectTimer();
     return this.establishConnection();
+  }
+
+  async loadSession(sessionId: string): Promise<void> {
+    this.ensureReadyState();
+    await this.sendRequest("session/load", {
+      sessionId,
+      cwd: this.options.cwd,
+      mcpServers: [],
+    } satisfies SessionLoadParams);
+    this.sessionId = sessionId;
   }
 
   async prompt(text: string): Promise<StopReason> {
@@ -226,11 +243,13 @@ export class AcpClient {
   }
 
   private async initializeSession(): Promise<void> {
-    await this.sendRequest<InitializeResult>("initialize", {
+    const initResult = await this.sendRequest<InitializeResult>("initialize", {
       protocolVersion: PROTOCOL_VERSION,
       clientCapabilities: CLIENT_CAPABILITIES,
       clientInfo: CLIENT_INFO,
     });
+
+    this.agentCapabilities = initResult.agentCapabilities ?? {};
 
     const { sessionId } = await this.sendRequest<SessionNewResult>(
       "session/new",

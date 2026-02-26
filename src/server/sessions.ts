@@ -2,15 +2,9 @@ import path from 'node:path';
 import { homedir } from 'node:os';
 import { existsSync } from 'node:fs';
 import Database from 'better-sqlite3';
+import type { SessionInfo } from '../shared/acp-types.js';
 
-export interface SessionInfo {
-  id: string;
-  cwd: string;
-  branch: string | null;
-  summary: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
+export type { SessionInfo } from '../shared/acp-types.js';
 
 interface SessionRow {
   id: string;
