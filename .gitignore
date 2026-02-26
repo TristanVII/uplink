@@ -2,3 +2,5 @@ node_modules
 dist
 *.tsbuildinfo
 bin/*.js
+test-results/
+playwright-report/
