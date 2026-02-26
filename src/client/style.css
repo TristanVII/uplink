@@ -492,7 +492,7 @@ pre code {
 
 button {
   background-color: var(--accent);
-  color: white;
+  color: var(--bg-primary);
   border: none;
   border-radius: 6px;
   padding: 0 1rem;
