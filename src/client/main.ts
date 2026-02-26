@@ -194,6 +194,10 @@ async function initializeClient() {
     cwd,
     onStateChange: (state) => updateConnectionStatus(state),
     onSessionUpdate: (update) => conversation.handleSessionUpdate(update),
+    // TODO: Understand how permissions work with Copilot CLI's --yolo flag.
+    // Can the user toggle auto-accept permissions mid-session from the chat UI?
+    // Or does the bridge process need to be started with --yolo? If so, should
+    // we expose a flag in the Uplink UI that restarts the bridge with --yolo?
     onPermissionRequest: (request, respond) => {
       showPermissionRequest(
         conversation,
