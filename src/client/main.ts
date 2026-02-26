@@ -3,7 +3,7 @@ import { Conversation } from './conversation.js';
 import { ChatUI } from './ui/chat.js';
 import { ShellOutput } from './ui/shell.js';
 import { showPermissionRequest, cancelAllPermissions, PermissionList } from './ui/permission.js';
-import { ToolCallUI } from './ui/tool-call.js';
+import { ToolCallList } from './ui/tool-call.js';
 import { PlanUI } from './ui/plan.js';
 import { fetchSessions, createSessionListPanel } from './ui/sessions.js';
 import { render, h } from 'preact';
@@ -112,8 +112,10 @@ const permissionContainer = document.createElement('div');
 chatArea.appendChild(permissionContainer);
 render(h(PermissionList, { conversation }), permissionContainer);
 
-const toolCallUI = new ToolCallUI(chatArea, conversation);
-toolCallUI.attach();
+// Mount Preact tool call list into chatArea
+const toolCallContainer = document.createElement('div');
+chatArea.appendChild(toolCallContainer);
+render(h(ToolCallList, { conversation }), toolCallContainer);
 
 const planUI = new PlanUI(chatArea, conversation);
 planUI.attach();
