@@ -145,12 +145,10 @@ async function main() {
 
   process.on('SIGINT', () => {
     shutdown();
-    // Exit immediately after synchronous cleanup to prevent the
-    // "Terminate batch job?" prompt that cmd.exe shows on Windows
-    // when a .cmd wrapper is interrupted. shutdown() already killed
-    // child processes and sent WS close frames synchronously;
-    // the async server.close() callback is best-effort.
-    process.exit(0);
+    // Exit after synchronous cleanup to avoid "Terminate batch job?" on Windows.
+    // The shutdown() call above synchronously kills child processes and sends
+    // WS close frames; the async server.close() callback is best-effort.
+    setImmediate(() => process.exit(0));
   });
   process.on('SIGTERM', shutdown);
 }
