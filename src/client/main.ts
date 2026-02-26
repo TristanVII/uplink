@@ -130,12 +130,16 @@ document.body.appendChild(sessionsModalContainer);
 render(h(SessionsModal, {}), sessionsModalContainer);
 
 /** Clear all conversation state and DOM when session changes. */
+const preactContainers = new Set([chatContainer, permissionContainer, toolCallContainer, planContainer]);
+
 function clearConversation(): void {
   conversation.clear();
   cancelAllPermissions(conversation);
-  // Remove non-tracked elements (shell output, etc.) from chatArea
-  while (chatArea.firstChild) {
-    chatArea.removeChild(chatArea.firstChild);
+  // Remove non-tracked elements (shell output, etc.) but preserve Preact mount points
+  for (const child of [...chatArea.childNodes]) {
+    if (!preactContainers.has(child as HTMLElement)) {
+      chatArea.removeChild(child);
+    }
   }
 }
 

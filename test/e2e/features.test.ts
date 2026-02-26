@@ -36,6 +36,29 @@ test('shell command execution', async ({ page }) => {
   await expect(shellOutput.locator('.stdout')).toContainText('hello world');
 });
 
+test('chat renders after model change', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  // Send a message and verify it renders
+  await page.locator('#prompt-input').fill('hello');
+  await page.locator('#send-btn').click();
+  await expect(page.locator('.message.agent')).toBeVisible({ timeout: 10000 });
+
+  // Change model (triggers clearConversation)
+  await page.locator('#menu-toggle').click();
+  await page.locator('#model-select').selectOption('claude-sonnet-4.6');
+
+  // Wait for reconnection
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  // Send another message and verify it renders
+  await page.locator('#prompt-input').fill('after model change');
+  await page.locator('#send-btn').click();
+  await expect(page.locator('.message.user')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('.message.agent')).toBeVisible({ timeout: 10000 });
+});
+
 test('thinking/reasoning display', async ({ page }) => {
   await page.goto('/');
 
