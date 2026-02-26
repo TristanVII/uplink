@@ -276,7 +276,7 @@ sendBtn.addEventListener('click', async () => {
 
   // In plan mode, prefix the message to instruct the agent to plan
   const promptText = currentMode === 'plan' && !text.startsWith('/')
-    ? `[[PLAN]] ${text}`
+    ? `/plan ${text}`
     : text;
 
   try {
