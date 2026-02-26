@@ -178,7 +178,9 @@ let clientCwd: string = '';
 
 function updateConnectionStatus(state: ConnectionState): void {
   const el = document.getElementById('connection-status')!;
-  el.textContent = state;
+  // Show "ready" instead of "prompting" since we have the dots indicator
+  const displayState = state === 'prompting' ? 'ready' : state;
+  el.textContent = displayState;
   el.className = `status-${
     state === 'ready' || state === 'prompting'
       ? 'connected'
