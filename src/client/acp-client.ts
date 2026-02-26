@@ -206,13 +206,21 @@ export class AcpClient {
       this.ws = ws;
       this.setState("connecting");
 
-      ws.addEventListener("open", () => this.handleOpen(callbacks));
-      ws.addEventListener("message", (event) => this.handleMessageEvent(event));
+      ws.addEventListener("open", () => {
+        if (this.ws !== ws) return; // stale socket
+        this.handleOpen(callbacks);
+      });
+      ws.addEventListener("message", (event) => {
+        if (this.ws !== ws) return;
+        this.handleMessageEvent(event);
+      });
       ws.addEventListener("close", () => {
+        if (this.ws !== ws) return; // old socket closing after replacement
         this.handleClose();
         callbacks?.onError?.(new Error("WebSocket closed"));
       });
       ws.addEventListener("error", () => {
+        if (this.ws !== ws) return;
         this.handleError(new Error("WebSocket encountered an error"));
       });
     } catch (error) {

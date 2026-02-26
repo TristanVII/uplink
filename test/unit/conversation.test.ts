@@ -321,10 +321,20 @@ describe('Conversation', () => {
         sessionUpdate: 'agent_message_chunk',
         content: { type: 'text', text: '' }
       });
-      // Should create message even if empty? Or append nothing?
-      // Based on implementation: appendAgentText creates a message if not exists
+      // Empty text should not create a new message (avoids empty bubbles / HR artifacts)
+      expect(conversation.messages).toHaveLength(0);
+
+      // But empty text should still append to an existing message
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'hello' }
+      });
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: '' }
+      });
       expect(conversation.messages).toHaveLength(1);
-      expect(conversation.messages[0].content).toBe('');
+      expect(conversation.messages[0].content).toBe('hello');
     });
 
     it('clear() resets everything', () => {

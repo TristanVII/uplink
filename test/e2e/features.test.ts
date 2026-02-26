@@ -54,6 +54,6 @@ test('thinking/reasoning display', async ({ page }) => {
   const tagName = await thinking.evaluate(el => el.tagName.toLowerCase());
   expect(tagName).toBe('details');
 
-  // Verify it contains thinking text
-  await expect(thinking).toContainText('think', { ignoreCase: true });
+  // Verify it contains reasoning content
+  await expect(thinking).toContainText('analyzed the problem', { timeout: 5000 });
 });

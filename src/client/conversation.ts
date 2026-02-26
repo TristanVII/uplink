@@ -176,7 +176,8 @@ export class Conversation {
     const last = this.messages[this.messages.length - 1];
     if (last?.role === "agent") {
       last.content += text;
-    } else {
+    } else if (text) {
+      // Only create a new message if there's actual content
       this.messages.push({ role: "agent", content: text, timestamp: Date.now() });
     }
   }
@@ -185,7 +186,7 @@ export class Conversation {
     const last = this.messages[this.messages.length - 1];
     if (last?.role === "user") {
       last.content += text;
-    } else {
+    } else if (text) {
       this.messages.push({ role: "user", content: text, timestamp: Date.now() });
     }
   }

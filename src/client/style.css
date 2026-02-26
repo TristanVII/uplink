@@ -291,6 +291,10 @@ body, html {
   word-wrap: break-word;
 }
 
+.message:has(.content:empty) {
+  display: none;
+}
+
 .message.user {
   align-self: flex-end;
   background-color: var(--accent);

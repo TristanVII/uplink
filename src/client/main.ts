@@ -265,19 +265,27 @@ modelSelect.addEventListener('change', async () => {
     localStorage.removeItem('uplink-model');
   }
 
-  if (client) {
-    try {
-      await client.sendRawRequest('uplink/set_model', { model: value });
-    } catch {
-      // Best-effort — model will be applied via URL parameter on reload
-    }
+  if (!client) return;
+
+  // Model change requires restarting the copilot process, which starts a new session.
+  // We can't resume mid-conversation because --model is a spawn-time flag.
+  try {
+    await client.sendRawRequest('uplink/set_model', { model: value || undefined });
+  } catch {
+    // Best-effort
   }
-  // Save current session so we can resume after restart
-  const currentSessionId = client?.currentSessionId;
-  if (currentSessionId) {
-    localStorage.setItem('uplink-resume-session', currentSessionId);
+
+  // Tear down old client and create a new one with updated URL
+  clearConversation();
+  client.disconnect();
+  try {
+    client = await initializeClient();
+    client.connect().catch((err) => {
+      console.error('Failed to connect after model change:', err);
+    });
+  } catch (err) {
+    console.error('Failed to reinitialize after model change:', err);
   }
-  window.location.reload();
 });
 
 // ─── Sessions ─────────────────────────────────────────────────────────
@@ -299,12 +307,17 @@ sessionsBtn.addEventListener('click', async () => {
           console.error('Failed to load session:', err);
         }
       },
-      onNewSession: () => {
+      onNewSession: async () => {
         clearConversation();
         client!.disconnect();
-        client!.connect().catch((err) => {
-          console.error('Failed to create new session:', err);
-        });
+        try {
+          client = await initializeClient();
+          client.connect().catch((err) => {
+            console.error('Failed to create new session:', err);
+          });
+        } catch (err) {
+          console.error('Failed to reinitialize for new session:', err);
+        }
       },
     },
   );
