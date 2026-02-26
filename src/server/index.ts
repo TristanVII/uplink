@@ -7,7 +7,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { Bridge, type BridgeOptions } from './bridge.js';
 import path from 'node:path';
 import { homedir } from 'node:os';
-import { getRecentSessions } from './sessions.js';
+import { getRecentSessions, recordSession } from './sessions.js';
 
 export interface ServerOptions {
   port: number;                    // default 3000
@@ -216,11 +216,27 @@ export function startServer(options: ServerOptions): ServerResult {
       return;
     }
 
-    // Bridge -> WebSocket
+    // Track pending session/new request IDs to capture session creation
+    const pendingSessionNewIds = new Set<number | string>();
+
+    // Bridge -> WebSocket (intercept session/new responses)
     bridge.onMessage((line) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(line);
+      if (ws.readyState !== WebSocket.OPEN) return;
+
+      // Check if this is a response to a session/new request
+      if (pendingSessionNewIds.size > 0) {
+        try {
+          const msg = JSON.parse(line);
+          if (msg.id != null && pendingSessionNewIds.has(msg.id) && msg.result?.sessionId) {
+            pendingSessionNewIds.delete(msg.id);
+            recordSession(resolvedCwd, msg.result.sessionId);
+          }
+        } catch {
+          // Not valid JSON — ignore
+        }
       }
+
+      ws.send(line);
     });
 
     bridge.onError((err) => {
@@ -294,7 +310,17 @@ export function startServer(options: ServerOptions): ServerResult {
           }
 
           newBridge.onMessage((line) => {
-            if (ws.readyState === WebSocket.OPEN) ws.send(line);
+            if (ws.readyState !== WebSocket.OPEN) return;
+            if (pendingSessionNewIds.size > 0) {
+              try {
+                const msg = JSON.parse(line);
+                if (msg.id != null && pendingSessionNewIds.has(msg.id) && msg.result?.sessionId) {
+                  pendingSessionNewIds.delete(msg.id);
+                  recordSession(resolvedCwd, msg.result.sessionId);
+                }
+              } catch { /* ignore */ }
+            }
+            ws.send(line);
           });
           newBridge.onError((err) => {
             console.error('Bridge error:', err);
@@ -315,6 +341,11 @@ export function startServer(options: ServerOptions): ServerResult {
           }));
         }
         return;
+      }
+
+      // Track session/new requests to capture the session ID from the response
+      if (parsed?.method === 'session/new' && parsed.id != null) {
+        pendingSessionNewIds.add(parsed.id);
       }
 
       if (activeBridge === bridge) {

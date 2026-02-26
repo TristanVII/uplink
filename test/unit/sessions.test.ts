@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { getRecentSessions } from '../../src/server/sessions.js';
+import { getRecentSessions, recordSession } from '../../src/server/sessions.js';
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -96,5 +96,73 @@ describe('getRecentSessions', () => {
     const dbPath = createTestDb();
     const result = await getRecentSessions('/no/sessions/here', 20, dbPath);
     expect(result).toEqual([]);
+  });
+});
+
+describe('recordSession', () => {
+  const tmpFiles: string[] = [];
+
+  function createTestDb(): string {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uplink-test-'));
+    const dbPath = path.join(tmpDir, 'session-store.db');
+    tmpFiles.push(dbPath, tmpDir);
+
+    const db = new Database(dbPath);
+    db.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        cwd TEXT,
+        branch TEXT,
+        summary TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+    db.close();
+    return dbPath;
+  }
+
+  afterEach(() => {
+    for (const f of tmpFiles.reverse()) {
+      try {
+        if (fs.statSync(f).isDirectory()) {
+          fs.rmSync(f, { recursive: true });
+        } else {
+          fs.unlinkSync(f);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    tmpFiles.length = 0;
+  });
+
+  it('inserts a new session row', async () => {
+    const dbPath = createTestDb();
+    recordSession('/projects/a', 'new-session-1', dbPath);
+
+    const result = await getRecentSessions('/projects/a', 20, dbPath);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('new-session-1');
+    expect(result[0].cwd).toBe('/projects/a');
+  });
+
+  it('does not overwrite existing session', async () => {
+    const dbPath = createTestDb();
+    const db = new Database(dbPath);
+    db.prepare(
+      'INSERT INTO sessions (id, cwd, summary) VALUES (?, ?, ?)',
+    ).run('existing-1', '/projects/a', 'Already here');
+    db.close();
+
+    recordSession('/projects/a', 'existing-1', dbPath);
+
+    const result = await getRecentSessions('/projects/a', 20, dbPath);
+    expect(result).toHaveLength(1);
+    expect(result[0].summary).toBe('Already here');
+  });
+
+  it('does not throw for nonexistent DB path', () => {
+    expect(() => recordSession('/x', 's1', '/nonexistent/path.db')).not.toThrow();
   });
 });

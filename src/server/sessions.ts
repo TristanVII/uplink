@@ -17,6 +17,24 @@ interface SessionRow {
 
 const SESSION_STORE_PATH = path.join(homedir(), '.copilot', 'session-store.db');
 
+/**
+ * Record a session in the session store so it appears in the sessions list.
+ * Uses INSERT OR IGNORE to avoid conflicts if the CLI already created the row.
+ */
+export function recordSession(cwd: string, sessionId: string, dbPath: string = SESSION_STORE_PATH): void {
+  let db: Database.Database | undefined;
+  try {
+    db = new Database(dbPath);
+    db.prepare(
+      'INSERT OR IGNORE INTO sessions (id, cwd, created_at, updated_at) VALUES (?, ?, datetime(\'now\'), datetime(\'now\'))',
+    ).run(sessionId, cwd);
+  } catch (err: unknown) {
+    console.warn('Failed to record session:', (err as Error).message);
+  } finally {
+    db?.close();
+  }
+}
+
 export function getRecentSessions(cwd: string, limit: number = 20, dbPath: string = SESSION_STORE_PATH): Promise<SessionInfo[]> {
   return Promise.resolve(querySessionsSync(cwd, limit, dbPath));
 }
