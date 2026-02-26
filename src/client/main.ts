@@ -9,8 +9,6 @@ import { fetchSessions, createSessionListPanel } from './ui/sessions.js';
 
 // ─── Constants ────────────────────────────────────────────────────────
 
-const DEFAULT_MODEL = 'claude-sonnet-4';
-
 const MODELS = [
   'claude-sonnet-4.6', 'claude-sonnet-4.5', 'claude-haiku-4.5',
   'claude-opus-4.6', 'claude-opus-4.6-fast', 'claude-opus-4.5',
@@ -50,6 +48,12 @@ initTheme();
 // ─── Model Selector ───────────────────────────────────────────────────
 
 function initModelSelector(): void {
+  // "Auto" means no --model flag; Copilot picks its default
+  const autoOption = document.createElement('option');
+  autoOption.value = '';
+  autoOption.textContent = 'Auto';
+  modelSelect.appendChild(autoOption);
+
   for (const model of MODELS) {
     const option = document.createElement('option');
     option.value = model;
@@ -57,8 +61,8 @@ function initModelSelector(): void {
     modelSelect.appendChild(option);
   }
 
-  const saved = localStorage.getItem('uplink-model') ?? DEFAULT_MODEL;
-  modelSelect.value = saved;
+  const saved = localStorage.getItem('uplink-model');
+  if (saved) modelSelect.value = saved;
 }
 
 initModelSelector();
@@ -145,10 +149,21 @@ function updateConnectionStatus(state: ConnectionState): void {
 
 async function initializeClient() {
   const tokenResponse = await fetch('/api/token');
-  const { token, cwd } = await tokenResponse.json();
+  const { token, cwd, model: serverModel } = await tokenResponse.json();
   clientCwd = cwd;
-  const selectedModel = localStorage.getItem('uplink-model') ?? DEFAULT_MODEL;
-  const wsUrl = `${wsProtocol}//${location.host}/ws?token=${encodeURIComponent(token)}&model=${encodeURIComponent(selectedModel)}`;
+
+  // Use explicitly saved model, or let Copilot use its default
+  const savedModel = localStorage.getItem('uplink-model');
+  let wsUrl = `${wsProtocol}//${location.host}/ws?token=${encodeURIComponent(token)}`;
+  if (savedModel) {
+    wsUrl += `&model=${encodeURIComponent(savedModel)}`;
+  }
+
+  // Update the "Auto" label to show the server's active model if known
+  const autoOption = modelSelect.querySelector('option[value=""]') as HTMLOptionElement;
+  if (autoOption && serverModel) {
+    autoOption.textContent = `Auto (${serverModel})`;
+  }
 
   return new AcpClient({
     wsUrl,
@@ -244,7 +259,11 @@ themeToggle.addEventListener('click', () => {
 
 modelSelect.addEventListener('change', async () => {
   const value = modelSelect.value;
-  localStorage.setItem('uplink-model', value);
+  if (value) {
+    localStorage.setItem('uplink-model', value);
+  } else {
+    localStorage.removeItem('uplink-model');
+  }
 
   if (client) {
     try {

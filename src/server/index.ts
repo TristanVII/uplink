@@ -102,9 +102,12 @@ export function startServer(options: ServerOptions): ServerResult {
 
   const resolvedCwd = options.cwd || process.cwd();
 
+  // Track the selected model (may be set by WS connection query params or uplink/set_model)
+  let selectedModel: string | undefined;
+
   // Token endpoint (must be before SPA fallback)
   app.get('/api/token', (_req, res) => {
-    res.json({ token: sessionToken, cwd: resolvedCwd });
+    res.json({ token: sessionToken, cwd: resolvedCwd, model: selectedModel ?? null });
   });
 
   // Sessions endpoint
@@ -138,7 +141,6 @@ export function startServer(options: ServerOptions): ServerResult {
   // Track the active bridge and socket
   let activeBridge: Bridge | null = null;
   let activeSocket: WebSocket | null = null;
-  let selectedModel: string | undefined;
 
   wss.on('connection', (ws, request) => {
     // Validate session token and read model from query params
