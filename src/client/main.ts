@@ -5,7 +5,7 @@ import { ShellOutput } from './ui/shell.js';
 import { showPermissionRequest, cancelAllPermissions, PermissionList } from './ui/permission.js';
 import { ToolCallList } from './ui/tool-call.js';
 import { PlanCard } from './ui/plan.js';
-import { fetchSessions, createSessionListPanel } from './ui/sessions.js';
+import { fetchSessions, openSessionsModal, SessionsModal } from './ui/sessions.js';
 import { render, h } from 'preact';
 
 // ─── Constants ────────────────────────────────────────────────────────
@@ -123,6 +123,11 @@ render(h(ToolCallList, { conversation }), toolCallContainer);
 const planContainer = document.createElement('div');
 chatArea.appendChild(planContainer);
 render(h(PlanCard, { conversation }), planContainer);
+
+// Mount Preact sessions modal on body
+const sessionsModalContainer = document.createElement('div');
+document.body.appendChild(sessionsModalContainer);
+render(h(SessionsModal, {}), sessionsModalContainer);
 
 /** Clear all conversation state and DOM when session changes. */
 function clearConversation(): void {
@@ -309,33 +314,30 @@ sessionsBtn.addEventListener('click', async () => {
   menuDropdown.hidden = true;
 
   const sessions = await fetchSessions(clientCwd);
-  const panel = createSessionListPanel(
+  openSessionsModal(
     sessions,
     client.supportsLoadSession,
-    {
-      onResume: async (sessionId) => {
-        clearConversation();
-        try {
-          await client!.loadSession(sessionId);
-        } catch (err) {
-          console.error('Failed to load session:', err);
-        }
-      },
-      onNewSession: async () => {
-        clearConversation();
-        client!.disconnect();
-        try {
-          client = await initializeClient();
-          client.connect().catch((err) => {
-            console.error('Failed to create new session:', err);
-          });
-        } catch (err) {
-          console.error('Failed to reinitialize for new session:', err);
-        }
-      },
+    async (sessionId) => {
+      clearConversation();
+      try {
+        await client!.loadSession(sessionId);
+      } catch (err) {
+        console.error('Failed to load session:', err);
+      }
+    },
+    async () => {
+      clearConversation();
+      client!.disconnect();
+      try {
+        client = await initializeClient();
+        client.connect().catch((err) => {
+          console.error('Failed to create new session:', err);
+        });
+      } catch (err) {
+        console.error('Failed to reinitialize for new session:', err);
+      }
     },
   );
-  document.body.appendChild(panel);
 });
 
 // ─── Connect ──────────────────────────────────────────────────────────
