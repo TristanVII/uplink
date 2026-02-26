@@ -30,12 +30,16 @@ graph LR
 ## Quick Start
 
 ```bash
-# Run directly (no install required)
-npx copilot-uplink
+git clone https://github.com/YOUR_ORG/copilot-uplink.git
+cd copilot-uplink
+npm install && npm run build
+npx tsx bin/cli.ts
 
-# Start with remote access via devtunnel
-npx copilot-uplink --tunnel
+# With remote access via devtunnel
+npx tsx bin/cli.ts --tunnel
 ```
+
+<!-- After publishing to npm: npx copilot-uplink [options] -->
 
 ## How It Works
 
@@ -93,11 +97,35 @@ sequenceDiagram
 - 🔄 **Auto-reconnect** with exponential backoff (1 s → 30 s max)
 - 🌙 **Dark / light theme**
 
+## Installing Dev Tunnels
+
+Dev Tunnels are required for remote access (`--tunnel`). Install for your platform:
+
+**macOS:**
+```bash
+brew install --cask devtunnel
+```
+
+**Linux:**
+```bash
+curl -sL https://aka.ms/DevTunnelCliInstall | bash
+```
+
+**Windows:**
+```powershell
+winget install Microsoft.devtunnel
+```
+
+After installing, authenticate once:
+```bash
+devtunnel user login
+```
+
 ## Getting the PWA on Your Phone
 
 1. **Start with tunnel:**
    ```bash
-   npx copilot-uplink --tunnel
+   npx tsx bin/cli.ts --tunnel
    ```
 2. **Scan the QR code** printed in your terminal with your phone's camera.
 3. **Add to Home Screen** — your browser will offer an "Install" or
@@ -111,7 +139,7 @@ sequenceDiagram
    devtunnel port create my-uplink -p 3000
 
    # Reuse every time
-   npx copilot-uplink --tunnel-id my-uplink
+   npx tsx bin/cli.ts --tunnel-id my-uplink
    ```
 
 With a persistent tunnel the installed PWA always connects to the same URL.
@@ -121,7 +149,7 @@ a reconnection banner and retries automatically.
 ## CLI Reference
 
 ```
-npx copilot-uplink [options]
+npx tsx bin/cli.ts [options]
 ```
 
 | Flag | Description | Default |

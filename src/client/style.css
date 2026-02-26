@@ -1,33 +1,49 @@
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/700.css';
+
 :root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+}
+
+html.dark {
   --bg-primary: #0d1117;
   --bg-secondary: #161b22;
+  --bg-tertiary: #1c2128;
   --text-primary: #e6edf3;
   --text-secondary: #8b949e;
-  --accent: #238636;
-  --accent-hover: #2ea043;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --accent-subtle: rgba(99, 102, 241, 0.15);
   --border: #30363d;
   --danger: #f85149;
   --success: #3fb950;
   --warning: #d29922;
+  --warning-subtle: rgba(210, 153, 34, 0.1);
+  --warning-glow-soft: rgba(210, 153, 34, 0.2);
+  --warning-glow: rgba(210, 153, 34, 0.4);
   --info: #58a6ff;
-  --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-  --font-mono: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+  color-scheme: dark;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg-primary: #ffffff;
-    --bg-secondary: #f6f8fa;
-    --text-primary: #24292f;
-    --text-secondary: #57606a;
-    --accent: #1f883d;
-    --accent-hover: #1a7f37;
-    --border: #d0d7de;
-    --danger: #cf222e;
-    --success: #1a7f37;
-    --warning: #9a6700;
-    --info: #0969da;
-  }
+html.light {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f6f8fa;
+  --bg-tertiary: #eef1f5;
+  --text-primary: #24292f;
+  --text-secondary: #57606a;
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-subtle: rgba(79, 70, 229, 0.1);
+  --border: #d0d7de;
+  --danger: #cf222e;
+  --success: #1a7f37;
+  --warning: #9a6700;
+  --warning-subtle: rgba(154, 103, 0, 0.1);
+  --warning-glow-soft: rgba(154, 103, 0, 0.15);
+  --warning-glow: rgba(154, 103, 0, 0.3);
+  --info: #0969da;
+  color-scheme: light;
 }
 
 * {
@@ -38,10 +54,31 @@ body, html {
   margin: 0;
   padding: 0;
   height: 100%;
-  font-family: var(--font-stack);
+  font-family: var(--font-mono);
   background-color: var(--bg-primary);
   color: var(--text-primary);
-  overflow: hidden; /* Prevent body scroll, handle in #app */
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
 }
 
 #app {
@@ -113,6 +150,23 @@ body, html {
   100% { opacity: 1; }
 }
 
+#theme-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  font-size: 1.1rem;
+  cursor: pointer;
+  color: var(--text-primary);
+  height: auto;
+  line-height: 1;
+  transition: background-color 0.2s;
+}
+
+#theme-toggle:hover {
+  background-color: var(--accent-subtle, rgba(127, 127, 127, 0.1));
+}
+
 /* Chat Area */
 #chat-area {
   flex-grow: 1;
@@ -126,7 +180,7 @@ body, html {
 
 .message {
   padding: 0.75rem 1rem;
-  border-radius: 6px;
+  border-radius: 8px;
   max-width: 85%;
   line-height: 1.5;
   word-wrap: break-word;
@@ -135,13 +189,15 @@ body, html {
 .message.user {
   align-self: flex-end;
   background-color: var(--accent);
-  color: #ffffff; /* Always white text on green bg */
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 .message.agent {
   align-self: flex-start;
   background-color: var(--bg-secondary);
   border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .message .content {
@@ -150,10 +206,10 @@ body, html {
 
 /* Code Blocks */
 pre {
-  background-color: var(--bg-primary);
+  background-color: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.75rem;
+  border-radius: 6px;
+  padding: 1rem;
   overflow-x: auto;
   font-family: var(--font-mono);
   font-size: 0.9em;
@@ -192,17 +248,25 @@ pre code {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 0.75rem;
-  font-family: inherit;
-  font-size: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
   resize: none;
-  min-height: 44px; /* Touch target size */
+  min-height: 44px;
   max-height: 150px;
-  line-height: 1.4;
+  line-height: 1.5;
+  overflow-y: hidden;
+  scrollbar-width: none; /* Firefox */
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+#prompt-input::-webkit-scrollbar {
+  display: none;
 }
 
 #prompt-input:focus {
-  outline: 2px solid var(--accent);
-  border-color: transparent;
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-subtle);
 }
 
 button {
@@ -215,7 +279,7 @@ button {
   font-size: 0.9rem;
   height: 44px; /* Touch target size */
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s;
   white-space: nowrap;
 }
 
@@ -245,6 +309,7 @@ button:disabled {
 /* Tool Calls */
 .tool-call {
   border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
   border-radius: 6px;
   margin-top: 0.5rem;
   background-color: var(--bg-primary);
@@ -260,6 +325,11 @@ button:disabled {
   border-bottom: 1px solid var(--border);
   font-size: 0.9rem;
   font-weight: 600;
+  transition: background-color 0.15s;
+}
+
+.tool-call-header:hover {
+  background-color: var(--bg-tertiary);
 }
 
 .tool-call .kind-icon {
@@ -291,11 +361,17 @@ button:disabled {
 
 /* Permission Requests */
 .permission-request {
-  background-color: rgba(210, 153, 34, 0.1); /* Warning tint */
+  background-color: var(--warning-subtle);
   border: 1px solid var(--warning);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 1rem;
   margin-top: 0.5rem;
+  animation: permission-glow 2s ease-in-out infinite;
+}
+
+@keyframes permission-glow {
+  0%, 100% { box-shadow: 0 0 4px var(--warning-glow-soft); }
+  50% { box-shadow: 0 0 12px var(--warning-glow); }
 }
 
 .permission-header {
@@ -342,6 +418,7 @@ button:disabled {
   align-items: center;
   gap: 0.75rem;
   font-size: 0.9rem;
+  transition: background-color 0.2s, opacity 0.2s;
 }
 
 .plan-entry:last-child {
@@ -403,6 +480,67 @@ button:disabled {
   background-color: var(--text-secondary);
   color: var(--bg-primary);
 }
+
+/* Syntax Highlighting (highlight.js) */
+.hljs {
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+/* Token colors — designed to work in both dark and light modes */
+html.dark .hljs-keyword,
+html.dark .hljs-selector-tag,
+html.dark .hljs-built_in { color: #c678dd; }
+
+html.dark .hljs-string,
+html.dark .hljs-attribute { color: #98c379; }
+
+html.dark .hljs-number,
+html.dark .hljs-literal { color: #d19a66; }
+
+html.dark .hljs-comment,
+html.dark .hljs-quote { color: #5c6370; font-style: italic; }
+
+html.dark .hljs-function .hljs-title,
+html.dark .hljs-title.function_ { color: #61afef; }
+
+html.dark .hljs-type,
+html.dark .hljs-title.class_ { color: #e5c07b; }
+
+html.dark .hljs-variable,
+html.dark .hljs-template-variable { color: #e06c75; }
+
+html.dark .hljs-meta { color: #56b6c2; }
+
+html.dark .hljs-addition { color: #3fb950; background-color: rgba(63, 185, 80, 0.1); }
+html.dark .hljs-deletion { color: #f85149; background-color: rgba(248, 81, 73, 0.1); }
+
+html.light .hljs-keyword,
+html.light .hljs-selector-tag,
+html.light .hljs-built_in { color: #8250df; }
+
+html.light .hljs-string,
+html.light .hljs-attribute { color: #0a3069; }
+
+html.light .hljs-number,
+html.light .hljs-literal { color: #953800; }
+
+html.light .hljs-comment,
+html.light .hljs-quote { color: #6e7781; font-style: italic; }
+
+html.light .hljs-function .hljs-title,
+html.light .hljs-title.function_ { color: #0550ae; }
+
+html.light .hljs-type,
+html.light .hljs-title.class_ { color: #953800; }
+
+html.light .hljs-variable,
+html.light .hljs-template-variable { color: #cf222e; }
+
+html.light .hljs-meta { color: #0550ae; }
+
+html.light .hljs-addition { color: #1a7f37; background-color: rgba(26, 127, 55, 0.1); }
+html.light .hljs-deletion { color: #cf222e; background-color: rgba(207, 34, 46, 0.1); }
 
 /* Mobile Responsive */
 @media (max-width: 600px) {

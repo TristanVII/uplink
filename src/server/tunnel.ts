@@ -4,8 +4,18 @@ const URL_REGEX = /(https:\/\/[^\s,]+devtunnels\.ms[^\s,]*)/i;
 const BUFFER_LIMIT = 4096;
 const URL_TIMEOUT_MS = 30_000;
 const FORCE_KILL_DELAY_MS = 5_000;
-const DEV_TUNNEL_NOT_FOUND_MESSAGE =
-  'devtunnel CLI not found. Install: winget install Microsoft.devtunnel';
+export function getDevTunnelNotFoundMessage(): string {
+  switch (process.platform) {
+    case 'darwin':
+      return 'devtunnel CLI not found. Install: brew install --cask devtunnel';
+    case 'linux':
+      return 'devtunnel CLI not found. Install: curl -sL https://aka.ms/DevTunnelCliInstall | bash';
+    case 'win32':
+      return 'devtunnel CLI not found. Install: winget install Microsoft.devtunnel';
+    default:
+      return 'devtunnel CLI not found. See https://aka.ms/DevTunnelCliInstall';
+  }
+}
 
 export interface TunnelOptions {
   port: number;
@@ -38,7 +48,7 @@ export async function startTunnel(options: TunnelOptions): Promise<TunnelResult>
     child = spawn('devtunnel', args, { stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new Error(DEV_TUNNEL_NOT_FOUND_MESSAGE);
+      throw new Error(getDevTunnelNotFoundMessage());
     }
 
     throw error;
@@ -143,7 +153,7 @@ export async function startTunnel(options: TunnelOptions): Promise<TunnelResult>
 
     const handleError = (error: NodeJS.ErrnoException): void => {
       if (error.code === 'ENOENT') {
-        rejectWith(new Error(DEV_TUNNEL_NOT_FOUND_MESSAGE));
+        rejectWith(new Error(getDevTunnelNotFoundMessage()));
         return;
       }
 

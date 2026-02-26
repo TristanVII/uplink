@@ -1,4 +1,37 @@
 import { Conversation, ConversationMessage } from '../conversation.js';
+import hljs from 'highlight.js/lib/core';
+import typescript from 'highlight.js/lib/languages/typescript';
+import javascript from 'highlight.js/lib/languages/javascript';
+import bash from 'highlight.js/lib/languages/bash';
+import json from 'highlight.js/lib/languages/json';
+import python from 'highlight.js/lib/languages/python';
+import css from 'highlight.js/lib/languages/css';
+import xml from 'highlight.js/lib/languages/xml';
+import diff from 'highlight.js/lib/languages/diff';
+import yaml from 'highlight.js/lib/languages/yaml';
+import markdown from 'highlight.js/lib/languages/markdown';
+import csharp from 'highlight.js/lib/languages/csharp';
+
+hljs.registerLanguage('typescript', typescript);
+hljs.registerLanguage('ts', typescript);
+hljs.registerLanguage('javascript', javascript);
+hljs.registerLanguage('js', javascript);
+hljs.registerLanguage('bash', bash);
+hljs.registerLanguage('shell', bash);
+hljs.registerLanguage('sh', bash);
+hljs.registerLanguage('json', json);
+hljs.registerLanguage('python', python);
+hljs.registerLanguage('py', python);
+hljs.registerLanguage('css', css);
+hljs.registerLanguage('xml', xml);
+hljs.registerLanguage('html', xml);
+hljs.registerLanguage('diff', diff);
+hljs.registerLanguage('yaml', yaml);
+hljs.registerLanguage('yml', yaml);
+hljs.registerLanguage('markdown', markdown);
+hljs.registerLanguage('md', markdown);
+hljs.registerLanguage('csharp', csharp);
+hljs.registerLanguage('cs', csharp);
 
 export class ChatUI {
   private chatArea: HTMLElement;
@@ -68,8 +101,22 @@ export class ChatUI {
       .replace(/"/g, '&quot;');
 
     // Code blocks: ```lang\n...\n``` → <pre><code>...</code></pre>
-    html = html.replace(/```(?:\w*)\n([\s\S]*?)```/g, (_match, code: string) => {
-      return `<pre><code>${code}</code></pre>`;
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_match, lang: string, code: string) => {
+      const unescaped = code
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"');
+      let highlighted: string;
+      if (lang && hljs.getLanguage(lang)) {
+        highlighted = hljs.highlight(unescaped, { language: lang }).value;
+      } else if (lang) {
+        highlighted = hljs.highlightAuto(unescaped).value;
+      } else {
+        highlighted = code;
+      }
+      const langClass = lang ? ` class="language-${lang}"` : '';
+      return `<pre><code${langClass}>${highlighted}</code></pre>`;
     });
 
     // Inline code: `...` → <code>...</code>

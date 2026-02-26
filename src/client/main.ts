@@ -5,6 +5,24 @@ import { PermissionUI } from './ui/permission.js';
 import { ToolCallUI } from './ui/tool-call.js';
 import { PlanUI } from './ui/plan.js';
 
+// Theme: initialize from localStorage or system preference
+function initTheme(): void {
+  const saved = localStorage.getItem('uplink-theme');
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const theme = saved ?? (prefersDark ? 'dark' : 'light');
+  document.documentElement.className = theme;
+  updateThemeIcon(theme);
+}
+
+function updateThemeIcon(theme: string): void {
+  const btn = document.getElementById('theme-toggle');
+  if (btn) {
+    btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+  }
+}
+
+initTheme();
+
 // Register service worker for PWA
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(err => {
@@ -108,6 +126,16 @@ cancelBtn.addEventListener('click', () => {
   permissionUI.cancelAll();
 });
 
+// Theme toggle
+const themeToggle = document.getElementById('theme-toggle')!;
+themeToggle.addEventListener('click', () => {
+  const current = document.documentElement.className;
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.className = next;
+  localStorage.setItem('uplink-theme', next);
+  updateThemeIcon(next);
+});
+
 // Enter to send (Shift+Enter for newline)
 promptInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -119,7 +147,10 @@ promptInput.addEventListener('keydown', (e) => {
 // Auto-resize textarea
 promptInput.addEventListener('input', () => {
   promptInput.style.height = 'auto';
-  promptInput.style.height = Math.min(promptInput.scrollHeight, 200) + 'px';
+  const maxH = 150;
+  const scrollH = promptInput.scrollHeight;
+  promptInput.style.height = Math.min(scrollH, maxH) + 'px';
+  promptInput.style.overflowY = scrollH > maxH ? 'auto' : 'hidden';
 });
 
 // Connect!
