@@ -268,7 +268,12 @@ export class AcpClient {
     if (resumeId && this.agentCapabilities.loadSession) {
       localStorage.removeItem('uplink-resume-session');
       try {
-        await this.loadSession(resumeId);
+        await this.sendRequest("session/load", {
+          sessionId: resumeId,
+          cwd: this.options.cwd,
+          mcpServers: [],
+        });
+        this.sessionId = resumeId;
         return;
       } catch {
         // Resume failed — fall through to new session

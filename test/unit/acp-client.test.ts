@@ -176,4 +176,82 @@ describe('AcpClient Bug Fixes', () => {
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Error in onPermissionRequest'), error);
     });
   });
+
+  describe('Session resume via localStorage', () => {
+    it('should call session/load when uplink-resume-session is set and agent supports it', async () => {
+      // Mock localStorage to return a resume session ID
+      (global.localStorage.getItem as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+        if (key === 'uplink-resume-session') return 'sess-to-resume';
+        return null;
+      });
+
+      const sendRequestSpy = vi.spyOn(client as any, 'sendRequest');
+      // initialize returns loadSession capability
+      sendRequestSpy.mockResolvedValueOnce({ agentCapabilities: { loadSession: true } });
+      // session/load succeeds
+      sendRequestSpy.mockResolvedValueOnce({});
+
+      client.connect();
+      const openCallback = mockWs.addEventListener.mock.calls.find(c => c[0] === 'open')?.[1];
+      openCallback();
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // Verify session/load was called instead of session/new
+      const calls = sendRequestSpy.mock.calls.map(c => c[0]);
+      expect(calls).toContain('initialize');
+      expect(calls).toContain('session/load');
+      expect(calls).not.toContain('session/new');
+      expect(client.currentSessionId).toBe('sess-to-resume');
+      // localStorage key should be cleared after use
+      expect(global.localStorage.removeItem).toHaveBeenCalledWith('uplink-resume-session');
+    });
+
+    it('should fall back to session/new when session/load fails', async () => {
+      (global.localStorage.getItem as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+        if (key === 'uplink-resume-session') return 'sess-broken';
+        return null;
+      });
+
+      const sendRequestSpy = vi.spyOn(client as any, 'sendRequest');
+      sendRequestSpy.mockResolvedValueOnce({ agentCapabilities: { loadSession: true } });
+      // session/load fails
+      sendRequestSpy.mockRejectedValueOnce(new Error('Session not found'));
+      // session/new succeeds
+      sendRequestSpy.mockResolvedValueOnce({ sessionId: 'sess-new' });
+
+      client.connect();
+      const openCallback = mockWs.addEventListener.mock.calls.find(c => c[0] === 'open')?.[1];
+      openCallback();
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      const calls = sendRequestSpy.mock.calls.map(c => c[0]);
+      expect(calls).toContain('session/new');
+      expect(client.currentSessionId).toBe('sess-new');
+    });
+
+    it('should skip session/load when agent does not support it', async () => {
+      (global.localStorage.getItem as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+        if (key === 'uplink-resume-session') return 'sess-no-support';
+        return null;
+      });
+
+      const sendRequestSpy = vi.spyOn(client as any, 'sendRequest');
+      sendRequestSpy.mockResolvedValueOnce({ agentCapabilities: {} }); // no loadSession
+      sendRequestSpy.mockResolvedValueOnce({ sessionId: 'sess-new' });
+
+      client.connect();
+      const openCallback = mockWs.addEventListener.mock.calls.find(c => c[0] === 'open')?.[1];
+      openCallback();
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      const calls = sendRequestSpy.mock.calls.map(c => c[0]);
+      expect(calls).not.toContain('session/load');
+      expect(calls).toContain('session/new');
+      // Resume key should still be cleaned up
+      expect(global.localStorage.removeItem).toHaveBeenCalledWith('uplink-resume-session');
+    });
+  });
 });

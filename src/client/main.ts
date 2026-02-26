@@ -291,11 +291,16 @@ modelSelect.addEventListener('change', async () => {
   if (!client) return;
 
   // Model change requires restarting the copilot process, which starts a new session.
-  // We can't resume mid-conversation because --model is a spawn-time flag.
+  // Save the current session so the new client can resume it via session/load.
   try {
     await client.sendRawRequest('uplink/set_model', { model: value || undefined });
   } catch {
     // Best-effort
+  }
+
+  const resumeSessionId = client.currentSessionId;
+  if (resumeSessionId) {
+    localStorage.setItem('uplink-resume-session', resumeSessionId);
   }
 
   // Tear down old client and create a new one with updated URL

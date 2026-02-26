@@ -5,6 +5,7 @@ import type {
   JsonRpcMessage,
   InitializeResult,
   SessionNewResult,
+  SessionLoadParams,
   SessionPromptParams,
   SessionPromptResult,
   SessionUpdateParams,
@@ -326,7 +327,7 @@ async function handleRequest(msg: JsonRpcRequest): Promise<void> {
     case "initialize": {
       const result: InitializeResult = {
         protocolVersion: 1,
-        agentCapabilities: {},
+        agentCapabilities: { loadSession: true },
         agentInfo: { name: "mock-agent", version: "0.1.0" },
         authMethods: [],
       };
@@ -336,6 +337,12 @@ async function handleRequest(msg: JsonRpcRequest): Promise<void> {
     case "session/new": {
       sessionId = `mock-session-${Date.now()}`;
       sendResponse(msg.id, { sessionId } satisfies SessionNewResult);
+      break;
+    }
+    case "session/load": {
+      const params = msg.params as SessionLoadParams;
+      sessionId = params.sessionId;
+      sendResponse(msg.id, {});
       break;
     }
     case "session/prompt": {

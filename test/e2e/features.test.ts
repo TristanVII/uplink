@@ -59,6 +59,40 @@ test('chat renders after model change', async ({ page }) => {
   await expect(page.locator('.message.agent')).toBeVisible({ timeout: 10000 });
 });
 
+test('model change resumes same session', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  // Intercept localStorage.setItem to capture the resume session ID
+  await page.evaluate(() => {
+    (window as any).__capturedResumeId = null;
+    const origSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(key: string, value: string) {
+      if (key === 'uplink-resume-session') {
+        (window as any).__capturedResumeId = value;
+      }
+      return origSetItem.call(this, key, value);
+    };
+  });
+
+  // Send a message so a session is established
+  await page.locator('#prompt-input').fill('hello');
+  await page.locator('#send-btn').click();
+  await expect(page.locator('.message.agent')).toBeVisible({ timeout: 10000 });
+
+  // Change model — should save session for resume
+  await page.locator('#menu-toggle').click();
+  await page.locator('#model-select').selectOption('claude-sonnet-4.6');
+
+  // Wait for reconnection
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  // Verify a resume session ID was saved
+  const resumeId = await page.evaluate(() => (window as any).__capturedResumeId);
+  expect(resumeId).toBeTruthy();
+  expect(resumeId).toMatch(/^mock-session-/);
+});
+
 test('thinking/reasoning display', async ({ page }) => {
   await page.goto('/');
 
