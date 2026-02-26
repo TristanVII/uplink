@@ -99,11 +99,14 @@ export class Conversation {
       case "tool_call_update": {
         const existing = this.toolCalls.get(update.toolCallId);
         if (existing) {
-          if (update.title !== undefined) existing.title = update.title;
-          if (update.status !== undefined) existing.status = update.status;
-          if (update.content !== undefined) existing.content = update.content;
-          if (update.locations !== undefined)
-            existing.locations = update.locations;
+          // Create a new object so Preact detects the change via reference equality
+          this.toolCalls.set(update.toolCallId, {
+            ...existing,
+            ...(update.title !== undefined && { title: update.title }),
+            ...(update.status !== undefined && { status: update.status }),
+            ...(update.content !== undefined && { content: update.content }),
+            ...(update.locations !== undefined && { locations: update.locations }),
+          });
         }
         break;
       }

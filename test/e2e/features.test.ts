@@ -93,9 +93,6 @@ test('model change resumes same session', async ({ page }) => {
   expect(resumeId).toMatch(/^mock-session-/);
 });
 
-// TODO: This test is flaky — the mock agent sends "I've analyzed the problem..." in a
-// tool_call_update, but the Preact component may replace or re-render the content before
-// the assertion runs. Investigate whether tool_call_update handling has a race with rendering.
 test('thinking/reasoning display', async ({ page }) => {
   await page.goto('/');
 
