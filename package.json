@@ -2,9 +2,13 @@
   "name": "copilot-uplink",
   "version": "0.1.0",
   "type": "module",
+  "license": "MIT",
   "bin": {
     "copilot-uplink": "./dist/bin/cli.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.server.json && vite build",
