@@ -29,6 +29,15 @@ describe('AcpClient Bug Fixes', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Mock localStorage for browser-only APIs
+    global.localStorage = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+      clear: vi.fn(),
+      length: 0,
+      key: vi.fn(() => null),
+    } as any;
     client = new AcpClient(options);
   });
 

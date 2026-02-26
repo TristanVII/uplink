@@ -211,6 +211,11 @@ modelSelect.addEventListener('change', async () => {
     }
   }
   // Reload to establish a fresh ACP session with the new model
+  // Save the current session ID so we can resume after restart
+  const currentSessionId = client?.currentSessionId;
+  if (currentSessionId) {
+    localStorage.setItem('uplink-resume-session', currentSessionId);
+  }
   window.location.reload();
 });
 

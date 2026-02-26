@@ -95,6 +95,10 @@ export class AcpClient {
     return this.agentCapabilities.loadSession === true;
   }
 
+  get currentSessionId(): string | undefined {
+    return this.sessionId;
+  }
+
   connect(): Promise<void> {
     if (this.state === "ready" || this.state === "prompting") {
       return Promise.resolve();
@@ -250,6 +254,19 @@ export class AcpClient {
     });
 
     this.agentCapabilities = initResult.agentCapabilities ?? {};
+
+    // Try to resume a saved session (e.g., after model change)
+    const resumeId = localStorage.getItem('uplink-resume-session');
+    if (resumeId && this.agentCapabilities.loadSession) {
+      localStorage.removeItem('uplink-resume-session');
+      try {
+        await this.loadSession(resumeId);
+        return;
+      } catch {
+        // Resume failed — fall through to new session
+      }
+    }
+    localStorage.removeItem('uplink-resume-session');
 
     const { sessionId } = await this.sendRequest<SessionNewResult>(
       "session/new",
