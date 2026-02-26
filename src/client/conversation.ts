@@ -45,6 +45,7 @@ export class Conversation {
   toolCalls: Map<string, TrackedToolCall> = new Map();
   permissions: TrackedPermission[] = [];
   plan: TrackedPlan | null = null;
+  isPrompting = false;
 
   private listeners: Set<() => void> = new Set();
 
@@ -56,7 +57,7 @@ export class Conversation {
     };
   }
 
-  private notify(): void {
+  notify(): void {
     for (const listener of this.listeners) {
       listener();
     }

@@ -120,11 +120,23 @@ export function ChatList({
     scrollContainer.scrollTop = scrollContainer.scrollHeight;
   });
 
+  // Show thinking indicator when prompting but no agent response yet
+  const lastMsg = conversation.messages[conversation.messages.length - 1];
+  const showThinking = conversation.isPrompting &&
+    (!lastMsg || lastMsg.role === 'user');
+
   return (
     <>
       {conversation.messages.map((msg, i) => (
         <ChatMessage key={i} msg={msg} />
       ))}
+      {showThinking && (
+        <div class="message agent thinking-indicator">
+          <div class="content">
+            <span class="thinking-dots">Thinking</span>
+          </div>
+        </div>
+      )}
       <div ref={bottomRef} />
     </>
   );

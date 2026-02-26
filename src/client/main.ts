@@ -166,6 +166,9 @@ function updateConnectionStatus(state: ConnectionState): void {
 
   sendBtn.disabled = state !== 'ready';
   cancelBtn.hidden = state !== 'prompting';
+
+  conversation.isPrompting = state === 'prompting';
+  conversation.notify();
 }
 
 async function initializeClient() {
