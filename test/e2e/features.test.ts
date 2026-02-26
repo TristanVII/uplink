@@ -142,3 +142,29 @@ test('permission buttons have readable contrast in dark mode', async ({ page }) 
   // White is rgb(255, 255, 255) — we want dark text instead
   expect(color).not.toBe('rgb(255, 255, 255)');
 });
+
+test('permission prompt appears inside the chat flow, not below it', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  // Trigger permission dialog
+  const input = page.locator('#prompt-input');
+  await input.fill('permission allow');
+  await page.locator('#send-btn').click();
+
+  // Wait for the permission prompt
+  const permissionCard = page.locator('.permission-request').first();
+  await expect(permissionCard).toBeVisible({ timeout: 10000 });
+
+  // The permission should be inside .chat-container (same flex container as messages)
+  const isInsideChatContainer = await permissionCard.evaluate((el) => {
+    return el.closest('.chat-container') !== null;
+  });
+  expect(isInsideChatContainer).toBe(true);
+
+  // The permission card should appear after the user message in DOM order
+  const userMessage = page.locator('.message.user').first();
+  const userMessageRect = await userMessage.boundingBox();
+  const permissionRect = await permissionCard.boundingBox();
+  expect(permissionRect!.y).toBeGreaterThan(userMessageRect!.y);
+});

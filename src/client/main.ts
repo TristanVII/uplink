@@ -104,30 +104,27 @@ if ('serviceWorker' in navigator) {
 
 const conversation = new Conversation();
 
-// Mount Preact chat list into chatArea
+// Mount all timeline components into a single chatContainer.
+// ChatList gets its own mount div, then tool calls, permissions, and plans
+// follow in DOM order so they appear at the bottom of the message flow.
 const chatContainer = document.createElement('div');
 chatContainer.className = 'chat-container';
 chatArea.appendChild(chatContainer);
-render(h(ChatList, { conversation, scrollContainer: chatArea }), chatContainer);
 
-// TODO: Permission bubbles appear below the chat messages in a separate mount container,
-// but the chat continues appending messages above them. This feels disjointed — the
-// permission prompt should visually stay at the bottom of the conversation flow.
-// Investigate interleaving permissions into the chat message list (e.g., rendering them
-// as special items in ChatList) so they maintain correct chronological ordering.
-// Mount Preact permission list into chatArea
-const permissionContainer = document.createElement('div');
-chatArea.appendChild(permissionContainer);
-render(h(PermissionList, { conversation }), permissionContainer);
+const chatMountDiv = document.createElement('div');
+chatContainer.appendChild(chatMountDiv);
+render(h(ChatList, { conversation, scrollContainer: chatArea }), chatMountDiv);
 
-// Mount Preact tool call list into chatArea
 const toolCallContainer = document.createElement('div');
-chatArea.appendChild(toolCallContainer);
+chatContainer.appendChild(toolCallContainer);
 render(h(ToolCallList, { conversation }), toolCallContainer);
 
-// Mount Preact plan card into chatArea
+const permissionContainer = document.createElement('div');
+chatContainer.appendChild(permissionContainer);
+render(h(PermissionList, { conversation }), permissionContainer);
+
 const planContainer = document.createElement('div');
-chatArea.appendChild(planContainer);
+chatContainer.appendChild(planContainer);
 render(h(PlanCard, { conversation }), planContainer);
 
 // Mount Preact sessions modal on body
@@ -136,7 +133,7 @@ document.body.appendChild(sessionsModalContainer);
 render(h(SessionsModal, {}), sessionsModalContainer);
 
 /** Clear all conversation state and DOM when session changes. */
-const preactContainers = new Set([chatContainer, permissionContainer, toolCallContainer, planContainer]);
+const preactContainers = new Set([chatContainer]);
 
 function clearConversation(): void {
   conversation.clear();
