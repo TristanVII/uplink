@@ -1,5 +1,33 @@
 import { test, expect } from '@playwright/test';
 
+test('user messages align right, agent messages align left', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  await page.locator('#prompt-input').fill('hello');
+  await page.locator('#send-btn').click();
+
+  // Wait for agent response
+  const agentMsg = page.locator('.message.agent').first();
+  await expect(agentMsg).toBeVisible({ timeout: 10000 });
+
+  const userMsg = page.locator('.message.user').first();
+  const chatArea = page.locator('#chat-area');
+  const chatAreaBox = await chatArea.boundingBox();
+  const userBox = await userMsg.boundingBox();
+  const agentBox = await agentMsg.boundingBox();
+
+  // User message should be right-aligned (its right edge near container right edge)
+  const userRightGap = chatAreaBox!.x + chatAreaBox!.width - (userBox!.x + userBox!.width);
+  const userLeftGap = userBox!.x - chatAreaBox!.x;
+  expect(userLeftGap).toBeGreaterThan(userRightGap);
+
+  // Agent message should be left-aligned (its left edge near container left edge)
+  const agentRightGap = chatAreaBox!.x + chatAreaBox!.width - (agentBox!.x + agentBox!.width);
+  const agentLeftGap = agentBox!.x - chatAreaBox!.x;
+  expect(agentRightGap).toBeGreaterThan(agentLeftGap);
+});
+
 test('dark/light mode toggle', async ({ page }) => {
   await page.goto('/');
 

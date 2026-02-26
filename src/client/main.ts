@@ -134,6 +134,7 @@ chatContainer.className = 'chat-container';
 chatArea.appendChild(chatContainer);
 
 const chatMountDiv = document.createElement('div');
+chatMountDiv.className = 'chat-messages';
 chatContainer.appendChild(chatMountDiv);
 render(h(ChatList, { conversation, scrollContainer: chatArea }), chatMountDiv);
 
