@@ -193,6 +193,45 @@ If the terminal WebSocket closes unexpectedly (network blip, phone sleep/wake, t
 
 Clean closes (code 1000, e.g. user navigated away) do **not** trigger reconnect. Note that the previous shell session and its state are lost on reconnect — this is a new PTY process.
 
+## Multi-Directory Sessions
+
+You can create multiple chat sessions, each scoped to a different working directory. The terminal stays shared and independent.
+
+### How It Works
+
+1. **Navigate** in the terminal to any project directory (`cd ~/projects/my-app`)
+2. **Tap the green "Start Chat Here" button** (💬 `add_comment` icon) in the terminal sidebar
+3. A new chat session is created, scoped to the terminal's current directory
+4. Copilot in that session sees files in that folder
+
+### Switching Sessions
+
+- **Click the folder name** (📁) in the header to open the session list
+- **`/session list`** in the chat input also opens the session list
+- **`/session new`** creates a new session in the server's default directory
+
+### Architecture
+
+Each session has its own:
+- **Bridge subprocess** — a separate `copilot --acp --stdio` process running in the session's cwd
+- **Conversation** — independent message history and tool calls
+- **WebSocket connection** — connected to a server-side session slot
+
+The terminal is shared across all sessions — it's a single shell that you use to navigate directories and create new sessions.
+
+### Server Endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/sessions/create` | Create a new session slot (`{ cwd }`) |
+| `GET` | `/api/sessions/active` | List all active session slots |
+| `DELETE` | `/api/sessions/active/:slotId` | Destroy a session slot |
+| `GET` | `/api/terminal/cwd` | Get the terminal shell's current working directory |
+
+### Wire Protocol
+
+WebSocket connections accept an optional `?slotId=` query parameter to connect to a specific session. If omitted, a new default session is created (backwards compatible).
+
 ## Inline Shell Commands
 
 The `!command` syntax in the chat input still works for quick one-shot commands:
