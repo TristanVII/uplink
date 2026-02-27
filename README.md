@@ -12,7 +12,7 @@
 cd ~/your/project/
 
 # With remote access via devtunnel
-npx @mattkotsenas/uplink --tunnel
+npx @mattkotsenas/uplink@latest --tunnel
 ```
 
 ## What Is This?
@@ -77,7 +77,7 @@ devtunnel user login
 
 1. **Start with tunnel:**
    ```bash
-   npx @mattkotsenas/uplink --tunnel
+   npx @mattkotsenas/uplink@latest --tunnel
    ```
 2. **Scan the QR code**printed in your terminal with your phone's camera.
 3. **Add to Home Screen** — your browser will offer an "Install" or "Add to Home Screen" prompt because the app ships a
@@ -89,7 +89,7 @@ devtunnel user login
    devtunnel port create my-uplink -p 3000
 
    # Reuse every time
-   npx @mattkotsenas/uplink --tunnel-id my-uplink
+   npx @mattkotsenas/uplink@latest --tunnel-id my-uplink
    ```
 
 With a persistent tunnel the installed PWA always connects to the same URL. If the bridge is offline the cached app
@@ -98,7 +98,7 @@ shell still opens instantly; it shows a reconnection banner and retries automati
 ## CLI Reference
 
 ```
-npx @mattkotsenas/uplink [options]
+npx @mattkotsenas/uplink@latest [options]
 ```
 
 | Flag | Description | Default |
