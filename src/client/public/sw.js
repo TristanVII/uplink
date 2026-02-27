@@ -1,10 +1,7 @@
-const CACHE_NAME = 'uplink-v1';
-const SHELL_URLS = ['/', '/index.html', '/style.css'];
+const CACHE_NAME = 'uplink-v2';
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_URLS)),
-  );
+self.addEventListener('install', () => {
+  self.skipWaiting();
 });
 
 self.addEventListener('fetch', (event) => {
