@@ -75,9 +75,10 @@ export function TerminalPanel({ wsUrl, visible }: TerminalPanelProps) {
 
     const term = new Terminal({
       fontFamily: "'JetBrains Mono', monospace",
-      fontSize: 14,
+      fontSize: window.innerWidth <= 600 ? 11 : 14,
       theme: getTheme(),
       cursorBlink: true,
+      scrollback: 5000,
       allowProposedApi: true,
     });
 
@@ -118,18 +119,27 @@ export function TerminalPanel({ wsUrl, visible }: TerminalPanelProps) {
       }
     });
 
-    // Handle resize
+    // Handle resize with debounce to avoid rapid refit
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
     const resizeObserver = new ResizeObserver(() => {
-      if (visible) {
-        fit.fit();
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (!fitRef.current || !termRef.current) return;
+        try {
+          fitRef.current.fit();
+        } catch {
+          // container may not be visible
+          return;
         }
-      }
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'resize', cols: termRef.current.cols, rows: termRef.current.rows }));
+        }
+      }, 100);
     });
     resizeObserver.observe(containerRef.current);
 
     return () => {
+      clearTimeout(resizeTimer);
       resizeObserver.disconnect();
       ws.close();
       term.dispose();
@@ -141,12 +151,20 @@ export function TerminalPanel({ wsUrl, visible }: TerminalPanelProps) {
 
   // Refit when visibility changes
   useEffect(() => {
-    if (visible && fitRef.current) {
-      // Small delay to let the container become visible before measuring
+    if (visible && fitRef.current && termRef.current) {
+      // Delay to let the container become visible before measuring
       setTimeout(() => {
-        fitRef.current?.fit();
+        try {
+          fitRef.current?.fit();
+        } catch {
+          return;
+        }
         termRef.current?.focus();
-      }, 50);
+        // Sync size to server
+        if (wsRef.current?.readyState === WebSocket.OPEN && termRef.current) {
+          wsRef.current.send(JSON.stringify({ type: 'resize', cols: termRef.current.cols, rows: termRef.current.rows }));
+        }
+      }, 100);
     }
   }, [visible]);
 
@@ -163,7 +181,6 @@ export function TerminalPanel({ wsUrl, visible }: TerminalPanelProps) {
     <div
       ref={containerRef}
       class={`terminal-container ${connected ? '' : 'disconnected'}`}
-      style={{ display: visible ? 'block' : 'none', width: '100%', height: '100%' }}
     />
   );
 }

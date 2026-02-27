@@ -987,12 +987,31 @@ html.light .hljs-deletion { color: #d20f39; background-color: rgb(210 15 57 / 10
 #terminal-area {
   flex: 1;
   overflow: hidden;
-  padding: var(--space-2);
+  padding: var(--space-1);
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--space-1));
+  min-height: 0; /* allow flex shrink */
 }
 
 .terminal-container {
+  width: 100%;
   height: 100%;
 }
+
+/* Ensure xterm fills its container */
+/* stylelint-disable selector-class-pattern -- xterm class names are from @xterm/xterm */
+.terminal-container .xterm {
+  height: 100%;
+  padding: var(--space-1);
+}
+
+.terminal-container .xterm-viewport {
+  overflow-y: auto !important;
+}
+
+.terminal-container .xterm-screen {
+  width: 100% !important;
+}
+/* stylelint-enable selector-class-pattern */
 
 /* Shell Output */
 .shell-output {
