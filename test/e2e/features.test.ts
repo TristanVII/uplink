@@ -631,3 +631,41 @@ test('sending a shell command reverts border to current mode', async ({ page }) 
   // After sending, border should revert to chat mode immediately
   await expect(html).toHaveAttribute('data-mode', 'chat');
 });
+
+test('typing /plan previews plan border, backspacing reverts', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  const input = page.locator('#prompt-input');
+  const html = page.locator('html');
+
+  // Start in chat mode
+  await expect(html).toHaveAttribute('data-mode', 'chat');
+
+  // Type /plan — should preview plan border
+  await input.fill('/plan');
+  await expect(html).toHaveAttribute('data-mode', 'plan');
+
+  // Type more after /plan — still plan mode
+  await input.fill('/plan fix the bug');
+  await expect(html).toHaveAttribute('data-mode', 'plan');
+
+  // Backspace to just "/" — should revert to chat
+  await input.fill('/');
+  await expect(html).toHaveAttribute('data-mode', 'chat');
+});
+
+test('typing /autopilot previews autopilot border', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  const input = page.locator('#prompt-input');
+  const html = page.locator('html');
+
+  await input.fill('/autopilot');
+  await expect(html).toHaveAttribute('data-mode', 'autopilot');
+
+  // Clear input — reverts to chat
+  await input.fill('hello');
+  await expect(html).toHaveAttribute('data-mode', 'chat');
+});

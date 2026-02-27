@@ -271,9 +271,17 @@ promptInput.addEventListener('input', () => {
   promptInput.style.height = Math.min(scrollH, maxH) + 'px';
   promptInput.style.overflowY = scrollH > maxH ? 'auto' : 'hidden';
 
-  // Dynamic shell-input border when text starts with !
+  // Dynamic border preview based on input prefix
   if (promptInput.value.startsWith('!')) {
     document.documentElement.setAttribute('data-mode', 'shell-input');
+  } else if (promptInput.value.startsWith('/')) {
+    const parts = promptInput.value.slice(1).split(/\s/, 1);
+    const cmd = parts[0]?.toLowerCase();
+    if (cmd === 'plan' || cmd === 'autopilot') {
+      document.documentElement.setAttribute('data-mode', cmd);
+    } else {
+      document.documentElement.setAttribute('data-mode', currentMode);
+    }
   } else {
     document.documentElement.setAttribute('data-mode', currentMode);
   }
