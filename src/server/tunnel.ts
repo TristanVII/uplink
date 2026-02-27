@@ -90,9 +90,10 @@ export async function startTunnel(options: TunnelOptions): Promise<TunnelResult>
 
   if (tunnelId) {
     args.push(tunnelId);
+  } else {
+    // Ephemeral tunnel — specify port inline
+    args.push('-p', String(port));
   }
-
-  args.push('-p', String(port));
 
   if (options.allowAnonymous) {
     args.push('--allow-anonymous');
