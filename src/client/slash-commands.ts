@@ -148,7 +148,7 @@ export function getCompletions(text: string): PaletteItem[] {
 
   const options = command.getOptions?.() ?? command.options ?? [];
   return options
-    .filter((o) => o.label.toLowerCase().startsWith(argPrefix) || o.value.toLowerCase().startsWith(argPrefix))
+    .filter((o) => o.label.toLowerCase().includes(argPrefix) || o.value.toLowerCase().includes(argPrefix))
     .map((o) => ({
       label: o.label,
       detail: o.detail,

@@ -104,6 +104,33 @@ test('clicking a command shows sub-options in palette', async ({ page }) => {
   await expect(palette.locator('.command-palette-label').first()).toContainText('Rename');
 });
 
+test('/model shows available models in autocomplete', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  const input = page.locator('#prompt-input');
+  const palette = page.locator('.command-palette');
+
+  // Type "/model " to show model sub-options
+  await input.fill('/model ');
+  await expect(palette).toBeVisible();
+
+  // Should show available models from mock agent
+  const items = palette.locator('.command-palette-item');
+  await expect(items).toHaveCount(4);
+
+  // Verify model names appear
+  await expect(palette.locator('.command-palette-label').nth(0)).toContainText('Claude Sonnet 4');
+  await expect(palette.locator('.command-palette-label').nth(1)).toContainText('Claude Haiku 4.5');
+  await expect(palette.locator('.command-palette-label').nth(2)).toContainText('Claude Opus 4.6');
+  await expect(palette.locator('.command-palette-label').nth(3)).toContainText('GPT-5.1');
+
+  // Filter by typing a prefix
+  await input.fill('/model haiku');
+  await expect(items).toHaveCount(1);
+  await expect(palette.locator('.command-palette-label').first()).toContainText('Claude Haiku 4.5');
+});
+
 test('shell command execution', async ({ page }) => {
   await page.goto('/');
 

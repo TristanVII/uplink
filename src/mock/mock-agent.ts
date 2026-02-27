@@ -390,7 +390,17 @@ async function handleRequest(msg: JsonRpcRequest): Promise<void> {
     }
     case "session/new": {
       sessionId = `mock-session-${Date.now()}`;
-      sendResponse(msg.id, { sessionId } satisfies SessionNewResult);
+      sendResponse(msg.id, {
+        sessionId,
+        models: {
+          availableModels: [
+            { modelId: 'claude-sonnet-4', name: 'Claude Sonnet 4', description: 'Claude Sonnet 4', _meta: { copilotUsage: '1x' } },
+            { modelId: 'claude-haiku-4.5', name: 'Claude Haiku 4.5', description: 'Claude Haiku 4.5', _meta: { copilotUsage: '1x' } },
+            { modelId: 'claude-opus-4.6', name: 'Claude Opus 4.6', description: 'Claude Opus 4.6', _meta: { copilotUsage: '25x' } },
+            { modelId: 'gpt-5.1', name: 'GPT-5.1', description: 'GPT-5.1', _meta: { copilotUsage: '1x' } },
+          ],
+        },
+      } satisfies SessionNewResult);
       break;
     }
     case "session/load": {

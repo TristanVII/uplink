@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { commands, getCompletions, parseSlashCommand } from '../../src/client/slash-commands';
+import { commands, getCompletions, parseSlashCommand, setAvailableModels } from '../../src/client/slash-commands';
 
 describe('slash-commands', () => {
   describe('/session options', () => {
@@ -110,6 +110,31 @@ describe('slash-commands', () => {
 
     it('returns empty for non-slash text', () => {
       expect(getCompletions('hello')).toEqual([]);
+    });
+  });
+
+  describe('model completions', () => {
+    it('filters model sub-options by substring match', () => {
+      setAvailableModels([
+        { modelId: 'claude-sonnet-4', name: 'Claude Sonnet 4' },
+        { modelId: 'claude-haiku-4.5', name: 'Claude Haiku 4.5' },
+        { modelId: 'gpt-5.1', name: 'GPT-5.1' },
+      ]);
+
+      // "haiku" matches within "Claude Haiku 4.5" and "claude-haiku-4.5"
+      const items = getCompletions('/model haiku');
+      expect(items.length).toBe(1);
+      expect(items[0].label).toBe('Claude Haiku 4.5');
+    });
+
+    it('shows all models for "/model "', () => {
+      setAvailableModels([
+        { modelId: 'claude-sonnet-4', name: 'Claude Sonnet 4' },
+        { modelId: 'claude-haiku-4.5', name: 'Claude Haiku 4.5' },
+      ]);
+
+      const items = getCompletions('/model ');
+      expect(items.length).toBe(2);
     });
   });
 });
