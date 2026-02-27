@@ -1059,12 +1059,37 @@ html.light .hljs-deletion { color: #d20f39; background-color: rgb(210 15 57 / 10
   border-color: var(--accent);
 }
 
+.terminal-ctrl-btn.active {
+  background-color: var(--accent);
+  color: var(--bg-primary);
+  border-color: var(--accent);
+}
+
 .terminal-ctrl-btn .material-symbols-outlined {
   font-size: var(--text-xl);
 }
 
 .terminal-ctrl-spacer {
   flex: 1;
+}
+
+/* Select mode: plain text overlay for native mobile text selection */
+.terminal-select-overlay {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-2);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+  border: none;
+  border-radius: 0;
 }
 
 /* Shell Output */

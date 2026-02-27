@@ -180,6 +180,8 @@ export function TerminalPanel({ wsUrl, visible }: TerminalPanelProps) {
   }, []);
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 600;
+  const [selectMode, setSelectMode] = useState(false);
+  const [bufferText, setBufferText] = useState('');
 
   const sendKey = useCallback((key: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -187,33 +189,41 @@ export function TerminalPanel({ wsUrl, visible }: TerminalPanelProps) {
     }
   }, []);
 
-  const handleCopy = useCallback(async () => {
-    const sel = termRef.current?.getSelection();
-    if (sel) {
-      try { await navigator.clipboard.writeText(sel); } catch { /* noop */ }
+  const toggleSelectMode = useCallback(() => {
+    if (!selectMode && termRef.current) {
+      // Extract visible buffer content as plain text
+      const buf = termRef.current.buffer.active;
+      const lines: string[] = [];
+      for (let i = 0; i < buf.length; i++) {
+        const line = buf.getLine(i);
+        if (line) lines.push(line.translateToString(true));
+      }
+      // Trim trailing empty lines
+      while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+      setBufferText(lines.join('\n'));
     }
-  }, []);
-
-  const handlePaste = useCallback(async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text) sendKey(text);
-    } catch { /* noop */ }
-  }, [sendKey]);
+    setSelectMode(!selectMode);
+  }, [selectMode]);
 
   return (
     <div class="terminal-wrapper">
       <div
         ref={containerRef}
         class={`terminal-container ${connected ? '' : 'disconnected'}`}
+        style={{ display: selectMode ? 'none' : undefined }}
       />
+      {selectMode && (
+        <pre class="terminal-select-overlay">{bufferText}</pre>
+      )}
       {isMobile && (
         <div class="terminal-mobile-controls">
-          <button class="terminal-ctrl-btn" onTouchStart={(e) => { e.preventDefault(); handleCopy(); }} onClick={handleCopy} aria-label="Copy">
-            <span class="material-symbols-outlined">content_copy</span>
-          </button>
-          <button class="terminal-ctrl-btn" onTouchStart={(e) => { e.preventDefault(); handlePaste(); }} onClick={handlePaste} aria-label="Paste">
-            <span class="material-symbols-outlined">content_paste</span>
+          <button
+            class={`terminal-ctrl-btn ${selectMode ? 'active' : ''}`}
+            onTouchStart={(e) => { e.preventDefault(); toggleSelectMode(); }}
+            onClick={toggleSelectMode}
+            aria-label="Select text"
+          >
+            <span class="material-symbols-outlined">{selectMode ? 'terminal' : 'select_all'}</span>
           </button>
           <div class="terminal-ctrl-spacer" />
           <button class="terminal-ctrl-btn" onTouchStart={(e) => { e.preventDefault(); sendKey('\x1b[A'); }} onClick={() => sendKey('\x1b[A')} aria-label="Up">
