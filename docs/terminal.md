@@ -53,20 +53,40 @@ Both WebSocket endpoints share the same HTTP server and devtunnel URL. A manual 
   - `/ws/terminal` → terminal session (new)
 - Both endpoints validate the session token from the query string
 
+**`src/server/index.ts`** — WebSocket keepalive
+
+- Pings the terminal WebSocket every 15 seconds to prevent idle timeout
+- Mobile browsers and tunnel proxies aggressively close idle connections; the ping keeps them alive
+- Ping interval is cleaned up on disconnect
+
 ### Client
 
 **`src/client/ui/terminal.tsx`** — `TerminalPanel` Preact component
 
 - Renders an `xterm.js` terminal with `FitAddon` for auto-sizing
+- `ClipboardAddon` for improved clipboard integration
 - Catppuccin Mocha (dark) and Latte (light) themes, synced with the app theme
 - Connects to `/ws/terminal` and exchanges JSON messages
 - `ResizeObserver` triggers fit + sends resize to server
+- **Auto-reconnect** — if the WebSocket drops unexpectedly, the client waits 2 seconds then reconnects and spawns a new shell. Status messages (`[Reconnecting...]`, `[Reconnected]`) are shown inline.
 
 **`src/client/main.ts`** — Tab switching
 
 - Tab bar with Chat and Terminal buttons
 - Switching tabs shows/hides the panels and triggers terminal refit
 - Terminal WebSocket URL is set after fetching the session token
+
+### Mobile Controls
+
+On screens ≤ 600px wide, a sidebar appears on the right side of the terminal with touch-friendly buttons:
+
+| Button | Icon | Action |
+|---|---|---|
+| **Select** | `select_all` / `terminal` | Toggles **select mode** — replaces the canvas with a plain `<pre>` element containing the terminal buffer text. This enables native mobile text selection (long-press → drag handles → copy). Tap again to return to the interactive terminal. |
+| **↑** | `keyboard_arrow_up` | Sends arrow-up to the shell (history previous) |
+| **↓** | `keyboard_arrow_down` | Sends arrow-down to the shell (history next) |
+
+**Why select mode?** xterm.js renders to a `<canvas>` element, which does not support native mobile text selection (the long-press → drag handles flow that works on regular DOM text). Select mode works around this by extracting the terminal buffer via xterm's buffer API (`getLine()` / `translateToString()`) and displaying it as selectable plain text.
 
 ### Wire Protocol
 
@@ -151,6 +171,28 @@ npm run test:all
 
 All 164 existing tests continue to pass — the terminal feature is additive and doesn't modify any existing ACP logic.
 
+## Connection Resilience
+
+### Keepalive
+
+The server sends a WebSocket **ping frame every 15 seconds** on the terminal connection. This prevents:
+
+- Mobile browsers from closing idle connections (iOS Safari, Android Chrome)
+- Tunnel proxies (devtunnel) from timing out inactive WebSockets
+- Corporate firewalls/NATs from dropping idle TCP connections
+
+### Auto-Reconnect
+
+If the terminal WebSocket closes unexpectedly (network blip, phone sleep/wake, tunnel restart), the client automatically:
+
+1. Shows `[Terminal disconnected]` and `[Reconnecting...]` in the terminal
+2. Waits 2 seconds
+3. Opens a new WebSocket connection
+4. Spawns a fresh shell session on the server
+5. Shows `[Reconnected]` on success
+
+Clean closes (code 1000, e.g. user navigated away) do **not** trigger reconnect. Note that the previous shell session and its state are lost on reconnect — this is a new PTY process.
+
 ## Inline Shell Commands
 
 The `!command` syntax in the chat input still works for quick one-shot commands:
@@ -165,6 +207,7 @@ These use the original `uplink/shell` JSON-RPC method (30s timeout, non-interact
 ## Limitations
 
 - **Single terminal session** — one shell per connection (matches the single-client constraint)
-- **No session persistence** — terminal state is lost on reconnect
+- **No session persistence** — terminal state (shell history, running processes) is lost on reconnect; a new shell is spawned
 - **Native dependency** — `node-pty` requires build tools at install time
 - **No terminal multiplexing** — one shell, no tabs/splits within the terminal
+- **Select mode is read-only** — you cannot type while in select mode; toggle back to the terminal first
