@@ -17,7 +17,6 @@
     "selector-id-pattern": null,
     "selector-class-pattern": null,
     "declaration-block-no-redundant-longhand-properties": null,
-    "alpha-value-notation": null,
     "declaration-empty-line-before": null,
     "length-zero-no-unit": null,
     "declaration-block-single-line-max-declarations": null,
