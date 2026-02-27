@@ -1,13 +1,28 @@
 #!/usr/bin/env node
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Command } from 'commander';
 import { startServer } from '../src/server/index.js';
 import { startTunnel, stopTunnel, type TunnelResult } from '../src/server/tunnel.js';
 
 const require = createRequire(import.meta.url);
+
+function findPackageJson(): { version: string } {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  while (dir !== dirname(dir)) {
+    const candidate = resolve(dir, 'package.json');
+    if (existsSync(candidate)) {
+      return JSON.parse(readFileSync(candidate, 'utf-8'));
+    }
+    dir = dirname(dir);
+  }
+  return { version: '0.0.0' };
+}
+
+const { version } = findPackageJson();
 const qrcode: {
   generate: (
     text: string,
@@ -16,42 +31,28 @@ const qrcode: {
   ) => void;
 } = require('qrcode-terminal');
 
-const args = process.argv.slice(2);
+const program = new Command()
+  .name('uplink')
+  .description('Remote control for GitHub Copilot CLI')
+  .version(version)
+  .option('--port <n>', 'port for bridge server', '3000')
+  .option('--tunnel', 'start a devtunnel for remote access')
+  .option('--no-tunnel', "don't start a devtunnel")
+  .option('--tunnel-id <name>', 'use a persistent devtunnel')
+  .option('--allow-anonymous', 'allow anonymous tunnel access (no GitHub auth)')
+  .option('--cwd <path>', 'working directory for Copilot', process.cwd())
+  .parse();
 
-function getArg(name: string): string | undefined {
-  const idx = args.indexOf(`--${name}`);
-  if (idx === -1) return undefined;
-  return args[idx + 1];
-}
+const opts = program.opts<{
+  port: string;
+  tunnel: boolean;
+  tunnelId?: string;
+  allowAnonymous?: boolean;
+  cwd: string;
+}>();
 
-function hasFlag(name: string): boolean {
-  return args.includes(`--${name}`);
-}
-
-const port = parseInt(getArg('port') ?? '3000', 10);
-const tunnelId = getArg('tunnel-id');
-const useTunnel = hasFlag('tunnel') || !!tunnelId;
-const noTunnel = hasFlag('no-tunnel');
-const allowAnonymous = hasFlag('allow-anonymous');
-const cwd = getArg('cwd') ?? process.cwd();
-
-if (hasFlag('help')) {
-  console.log(`
-Copilot Uplink — Remote control for GitHub Copilot CLI
-
-Usage: uplink [options]
-
-Options:
-  --port <n>          Port for bridge server (default: 3000)
-  --tunnel            Start a devtunnel for remote access
-  --no-tunnel         Don't start a devtunnel
-  --tunnel-id <name>  Use a persistent devtunnel
-  --allow-anonymous   Allow anonymous tunnel access (no GitHub auth)
-  --cwd <path>        Working directory for Copilot
-  --help              Show this help
-`);
-  process.exit(0);
-}
+const port = parseInt(opts.port, 10);
+const useTunnel = opts.tunnel || !!opts.tunnelId;
 
 function resolveStaticDir(): string {
   const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -83,7 +84,7 @@ async function main() {
   const { server, close } = startServer({
     port,
     staticDir,
-    cwd: resolve(cwd),
+    cwd: resolve(opts.cwd),
   });
 
   await listen(server, port);
@@ -98,13 +99,13 @@ async function main() {
   console.log(`  Local:  http://localhost:${actualPort}`);
 
   let tunnel: TunnelResult | null = null;
-  if (useTunnel && !noTunnel) {
-    if (allowAnonymous) {
+  if (useTunnel) {
+    if (opts.allowAnonymous) {
       console.warn('⚠️  WARNING: Anonymous tunnel access enabled!');
       console.warn('   Anyone with the URL can control your Copilot session.');
     }
     try {
-      tunnel = await startTunnel({ port: actualPort, tunnelId, allowAnonymous });
+      tunnel = await startTunnel({ port: actualPort, tunnelId: opts.tunnelId, allowAnonymous: opts.allowAnonymous });
       console.log(`  Tunnel: ${tunnel.url}`);
       console.log();
       console.log('  Scan QR code on your phone to connect:');
