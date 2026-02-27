@@ -4,7 +4,7 @@ import { ChatList } from './ui/chat.js';
 import { showPermissionRequest, cancelAllPermissions } from './ui/permission.js';
 import { fetchSessions, openSessionsModal, SessionsModal } from './ui/sessions.js';
 import { CommandPalette, type PaletteItem } from './ui/command-palette.js';
-import { getCompletions, parseSlashCommand, setAvailableModels } from './slash-commands.js';
+import { getCompletions, parseSlashCommand, setAvailableModels, findModelName } from './slash-commands.js';
 import { render, h } from 'preact';
 import 'material-symbols/outlined.css';
 
@@ -14,6 +14,7 @@ const chatArea = document.getElementById('chat-area')!;
 const promptInput = document.getElementById('prompt-input') as HTMLTextAreaElement;
 const sendBtn = document.getElementById('send-btn') as HTMLButtonElement;
 const cancelBtn = document.getElementById('cancel-btn') as HTMLButtonElement;
+const modelLabel = document.getElementById('model-label')!;
 
 let yoloMode = localStorage.getItem('uplink-yolo') === 'true';
 
@@ -127,7 +128,13 @@ async function initializeClient() {
     cwd,
     onStateChange: (state) => updateConnectionStatus(state),
     onSessionUpdate: (update) => conversation.handleSessionUpdate(update),
-    onModelsAvailable: (models) => setAvailableModels(models),
+    onModelsAvailable: (models, currentModelId) => {
+      setAvailableModels(models);
+      if (currentModelId) {
+        const model = models.find((m) => m.modelId === currentModelId);
+        modelLabel.textContent = model?.name ?? currentModelId;
+      }
+    },
     onPermissionRequest: (request, respond) => {
       const autoApproveId = yoloMode
         ? request.options.find(
@@ -190,6 +197,9 @@ sendBtn.addEventListener('click', async () => {
       if (!remainingPrompt) return;
       // Mode command with a prompt — send the prompt portion
       promptText = remainingPrompt;
+    } else if (parsed.command === '/model' && parsed.arg) {
+      const name = findModelName(parsed.arg);
+      if (name) modelLabel.textContent = name;
     }
   }
 

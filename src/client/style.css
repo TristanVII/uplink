@@ -341,8 +341,27 @@ pre code {
   flex-shrink: 0;
 }
 
+#input-wrapper {
+  position: relative;
+  flex-grow: 1;
+}
+
+#model-label {
+  position: absolute;
+  top: -8px;
+  right: 12px;
+  background-color: var(--bg-primary);
+  padding: 0 6px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 #prompt-input {
   flex-grow: 1;
+  width: 100%;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   border: 1px solid var(--border);

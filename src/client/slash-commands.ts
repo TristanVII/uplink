@@ -39,6 +39,15 @@ export function setAvailableModels(
   }));
 }
 
+/** Find the display name for a model by partial match (same logic as completions). */
+export function findModelName(arg: string): string | undefined {
+  const term = arg.toLowerCase();
+  const match = availableModels.find(
+    (m) => m.value.toLowerCase().includes(term) || m.label.toLowerCase().includes(term),
+  );
+  return match?.label;
+}
+
 export const commands: SlashCommand[] = [
   {
     name: 'model',

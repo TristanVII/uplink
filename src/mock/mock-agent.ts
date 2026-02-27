@@ -393,6 +393,7 @@ async function handleRequest(msg: JsonRpcRequest): Promise<void> {
       sendResponse(msg.id, {
         sessionId,
         models: {
+          currentModelId: 'claude-sonnet-4',
           availableModels: [
             { modelId: 'claude-sonnet-4', name: 'Claude Sonnet 4', description: 'Claude Sonnet 4', _meta: { copilotUsage: '1x' } },
             { modelId: 'claude-haiku-4.5', name: 'Claude Haiku 4.5', description: 'Claude Haiku 4.5', _meta: { copilotUsage: '1x' } },

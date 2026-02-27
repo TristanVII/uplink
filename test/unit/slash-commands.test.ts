@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { commands, getCompletions, parseSlashCommand, setAvailableModels } from '../../src/client/slash-commands';
+import { commands, getCompletions, parseSlashCommand, setAvailableModels, findModelName } from '../../src/client/slash-commands';
 
 describe('slash-commands', () => {
   describe('/session options', () => {
@@ -135,6 +135,17 @@ describe('slash-commands', () => {
 
       const items = getCompletions('/model ');
       expect(items.length).toBe(2);
+    });
+
+    it('findModelName returns display name by substring match', () => {
+      setAvailableModels([
+        { modelId: 'claude-sonnet-4', name: 'Claude Sonnet 4' },
+        { modelId: 'claude-haiku-4.5', name: 'Claude Haiku 4.5' },
+      ]);
+
+      expect(findModelName('haiku')).toBe('Claude Haiku 4.5');
+      expect(findModelName('claude-sonnet-4')).toBe('Claude Sonnet 4');
+      expect(findModelName('unknown')).toBeUndefined();
     });
   });
 });

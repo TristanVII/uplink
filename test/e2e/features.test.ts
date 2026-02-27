@@ -131,6 +131,24 @@ test('/model shows available models in autocomplete', async ({ page }) => {
   await expect(palette.locator('.command-palette-label').first()).toContainText('Claude Haiku 4.5');
 });
 
+test('model label shows current model on the input border', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  // Should show the default model from session/new
+  const label = page.locator('#model-label');
+  await expect(label).toBeVisible();
+  await expect(label).toContainText('Claude Sonnet 4');
+
+  // Switch model via /model command
+  const input = page.locator('#prompt-input');
+  await input.fill('/model claude-haiku-4.5');
+  await page.locator('#send-btn').click();
+
+  // Label should update to the new model
+  await expect(label).toContainText('Claude Haiku 4.5');
+});
+
 test('shell command execution', async ({ page }) => {
   await page.goto('/');
 

@@ -60,7 +60,7 @@ export interface AcpClientOptions {
   cwd: string;
   onStateChange?: (state: ConnectionState) => void;
   onSessionUpdate?: (update: SessionUpdate) => void;
-  onModelsAvailable?: (models: AvailableModel[]) => void;
+  onModelsAvailable?: (models: AvailableModel[], currentModelId?: string) => void;
   onPermissionRequest?: (
     request: PermissionRequestContext,
     respond: (outcome: PermissionOutcome) => void,
@@ -295,7 +295,7 @@ export class AcpClient {
     localStorage.setItem('uplink-resume-session', result.sessionId);
 
     if (result.models?.availableModels) {
-      this.options.onModelsAvailable?.(result.models.availableModels);
+      this.options.onModelsAvailable?.(result.models.availableModels, result.models.currentModelId);
     }
   }
 

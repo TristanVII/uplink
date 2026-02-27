@@ -25,7 +25,10 @@
     </main>
     <footer id="input-area">
       <div id="palette-mount"></div>
-      <textarea id="prompt-input" placeholder="Send a message or type / for commands..." rows="1" aria-label="Message to Copilot"></textarea>
+      <div id="input-wrapper">
+        <textarea id="prompt-input" placeholder="Send a message or type / for commands..." rows="1" aria-label="Message to Copilot"></textarea>
+        <span id="model-label"></span>
+      </div>
       <button id="send-btn" disabled>Send</button>
       <button id="cancel-btn" hidden>Cancel</button>
     </footer>
