@@ -1,7 +1,8 @@
 import { h } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState, useCallback } from 'preact/hooks';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { ClipboardAddon } from '@xterm/addon-clipboard';
 import '@xterm/xterm/css/xterm.css';
 
 export interface TerminalPanelProps {
@@ -84,6 +85,7 @@ export function TerminalPanel({ wsUrl, visible }: TerminalPanelProps) {
 
     const fit = new FitAddon();
     term.loadAddon(fit);
+    term.loadAddon(new ClipboardAddon());
     term.open(containerRef.current);
 
     termRef.current = term;
@@ -177,10 +179,51 @@ export function TerminalPanel({ wsUrl, visible }: TerminalPanelProps) {
     return () => observer.disconnect();
   }, []);
 
+  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 600;
+
+  const sendKey = useCallback((key: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'data', data: key }));
+    }
+  }, []);
+
+  const handleCopy = useCallback(async () => {
+    const sel = termRef.current?.getSelection();
+    if (sel) {
+      try { await navigator.clipboard.writeText(sel); } catch { /* noop */ }
+    }
+  }, []);
+
+  const handlePaste = useCallback(async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) sendKey(text);
+    } catch { /* noop */ }
+  }, [sendKey]);
+
   return (
-    <div
-      ref={containerRef}
-      class={`terminal-container ${connected ? '' : 'disconnected'}`}
-    />
+    <div class="terminal-wrapper">
+      <div
+        ref={containerRef}
+        class={`terminal-container ${connected ? '' : 'disconnected'}`}
+      />
+      {isMobile && (
+        <div class="terminal-mobile-controls">
+          <button class="terminal-ctrl-btn" onTouchStart={(e) => { e.preventDefault(); handleCopy(); }} onClick={handleCopy} aria-label="Copy">
+            <span class="material-symbols-outlined">content_copy</span>
+          </button>
+          <button class="terminal-ctrl-btn" onTouchStart={(e) => { e.preventDefault(); handlePaste(); }} onClick={handlePaste} aria-label="Paste">
+            <span class="material-symbols-outlined">content_paste</span>
+          </button>
+          <div class="terminal-ctrl-spacer" />
+          <button class="terminal-ctrl-btn" onTouchStart={(e) => { e.preventDefault(); sendKey('\x1b[A'); }} onClick={() => sendKey('\x1b[A')} aria-label="Up">
+            <span class="material-symbols-outlined">keyboard_arrow_up</span>
+          </button>
+          <button class="terminal-ctrl-btn" onTouchStart={(e) => { e.preventDefault(); sendKey('\x1b[B'); }} onClick={() => sendKey('\x1b[B')} aria-label="Down">
+            <span class="material-symbols-outlined">keyboard_arrow_down</span>
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
