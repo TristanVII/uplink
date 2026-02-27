@@ -64,6 +64,8 @@ export class Conversation {
   timeline: TimelineEntry[] = [];
   isPrompting = false;
   private nextShellId = 0;
+  private nextThinkingId = 0;
+  private activeThinkingId: string | null = null;
 
   private listeners: Set<() => void> = new Set();
 
@@ -100,11 +102,18 @@ export class Conversation {
 
   handleSessionUpdate(update: SessionUpdate): void {
     switch (update.sessionUpdate) {
-      case "agent_message_chunk":
-        this.appendAgentText(
-          update.content.type === "text" ? update.content.text : "",
-        );
+      case "agent_message_chunk": {
+        const content = update.content;
+        if ("thinking" in content && content.type === "thinking") {
+          this.appendThinking((content as { thinking: string }).thinking);
+        } else {
+          this.completeThinking();
+          this.appendAgentText(
+            content.type === "text" ? content.text : "",
+          );
+        }
         break;
+      }
 
       case "user_message_chunk":
         this.appendUserText(
@@ -211,6 +220,8 @@ export class Conversation {
     this.plan = null;
     this.timeline = [];
     this.nextShellId = 0;
+    this.nextThinkingId = 0;
+    this.activeThinkingId = null;
     this.notify();
   }
 
@@ -247,5 +258,42 @@ export class Conversation {
       this.messages.push({ role: "user", content: text, timestamp: Date.now() });
       this.timeline.push({ type: "message", index: this.messages.length - 1 });
     }
+  }
+
+  private appendThinking(text: string): void {
+    if (this.activeThinkingId) {
+      // Accumulate into existing thinking tool call
+      const tc = this.toolCalls.get(this.activeThinkingId);
+      if (tc && tc.content.length > 0 && tc.content[0].type === "content") {
+        const inner = tc.content[0].content;
+        if (inner.type === "text") {
+          inner.text += text;
+        }
+      }
+      // Create new object reference so Preact detects the change
+      this.toolCalls.set(this.activeThinkingId, { ...tc! });
+    } else {
+      // Create a new thinking tool call
+      const id = `thinking-${this.nextThinkingId++}`;
+      this.activeThinkingId = id;
+      this.toolCalls.set(id, {
+        toolCallId: id,
+        title: "Thinking",
+        kind: "think",
+        status: "in_progress",
+        content: [{ type: "content", content: { type: "text", text } }],
+        locations: [],
+      });
+      this.timeline.push({ type: "toolCall", toolCallId: id });
+    }
+  }
+
+  private completeThinking(): void {
+    if (!this.activeThinkingId) return;
+    const tc = this.toolCalls.get(this.activeThinkingId);
+    if (tc) {
+      this.toolCalls.set(this.activeThinkingId, { ...tc, status: "completed" });
+    }
+    this.activeThinkingId = null;
   }
 }

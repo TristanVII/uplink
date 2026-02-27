@@ -384,6 +384,59 @@ describe('Conversation', () => {
       expect(conversation.messages[0].content).toBe('hello');
     });
 
+    it('thinking content block in agent_message_chunk creates a think tool call', () => {
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'thinking', thinking: 'Let me consider...' } as any
+      });
+
+      // Should create a tool call with kind: 'think', not a message
+      expect(conversation.messages).toHaveLength(0);
+      expect(conversation.toolCalls.size).toBe(1);
+      const tc = [...conversation.toolCalls.values()][0];
+      expect(tc.kind).toBe('think');
+      expect(tc.status).toBe('in_progress');
+      expect(tc.content[0]).toEqual({
+        type: 'content',
+        content: { type: 'text', text: 'Let me consider...' }
+      });
+    });
+
+    it('consecutive thinking blocks accumulate into same tool call', () => {
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'thinking', thinking: 'First thought.' } as any
+      });
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'thinking', thinking: ' Second thought.' } as any
+      });
+
+      expect(conversation.toolCalls.size).toBe(1);
+      const tc = [...conversation.toolCalls.values()][0];
+      expect(tc.content).toHaveLength(1);
+      expect(tc.content[0]).toEqual({
+        type: 'content',
+        content: { type: 'text', text: 'First thought. Second thought.' }
+      });
+    });
+
+    it('text after thinking completes the thinking tool call', () => {
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'thinking', thinking: 'Reasoning...' } as any
+      });
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'Here is my answer.' }
+      });
+
+      const tc = [...conversation.toolCalls.values()][0];
+      expect(tc.status).toBe('completed');
+      expect(conversation.messages).toHaveLength(1);
+      expect(conversation.messages[0].content).toBe('Here is my answer.');
+    });
+
     it('clear() resets everything', () => {
       conversation.addUserMessage('user');
       conversation.handleSessionUpdate({

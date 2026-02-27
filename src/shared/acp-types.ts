@@ -182,7 +182,14 @@ export type ContentBlock =
   | TextContentBlock
   | ImageContentBlock
   | ResourceLinkContentBlock
-  | ResourceContentBlock;
+  | ResourceContentBlock
+  | ThinkingContentBlock;
+
+/** A thinking/reasoning content block (chain-of-thought). */
+export interface ThinkingContentBlock {
+  type: "thinking";
+  thinking: string;
+}
 
 // ─── Tool Calls ───────────────────────────────────────────────────────
 

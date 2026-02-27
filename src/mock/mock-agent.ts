@@ -334,6 +334,25 @@ async function scenarioReasoning(requestId: number | string): Promise<void> {
   );
 }
 
+async function scenarioThinking(requestId: number | string): Promise<void> {
+  // Simulate real CLI sending thinking content blocks as agent_message_chunk
+  sendSessionUpdate({
+    sessionUpdate: "agent_message_chunk",
+    content: { type: "thinking", thinking: "Let me consider the approach..." } as ContentBlock,
+  });
+  await delay(50);
+  sendSessionUpdate({
+    sessionUpdate: "agent_message_chunk",
+    content: { type: "thinking", thinking: "I should check the database schema first." } as ContentBlock,
+  });
+  await delay(50);
+  sendPromptChunk(requestId, "Here's what I found after thinking it through.");
+  respondToPrompt(
+    requestId,
+    { stopReason: "end_turn" } satisfies SessionPromptResult,
+  );
+}
+
 function scenarioRefusal(requestId: number | string): void {
   sendPromptChunk(requestId, "I cannot do that.");
   respondToPrompt(
@@ -393,6 +412,8 @@ async function handleRequest(msg: JsonRpcRequest): Promise<void> {
         await scenarioPlanThenExecute(msg.id);
       } else if (text.startsWith("reason")) {
         await scenarioReasoning(msg.id);
+      } else if (text.startsWith("thinking")) {
+        await scenarioThinking(msg.id);
       } else if (text.startsWith("refuse")) {
         scenarioRefusal(msg.id);
       } else if (text === "continue") {

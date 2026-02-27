@@ -493,3 +493,22 @@ test('shell output appears inline in timeline, not pinned to bottom', async ({ p
   expect(followUpBox).toBeTruthy();
   expect(shellBox!.y).toBeLessThan(followUpBox!.y);
 });
+
+test('thinking content blocks render as collapsible reasoning', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  const input = page.locator('#prompt-input');
+  await input.fill('thinking');
+  await page.locator('#send-btn').click();
+
+  // Wait for the agent response (follows the thinking blocks)
+  const agentMsg = page.locator('.message.agent');
+  await expect(agentMsg).toBeVisible({ timeout: 10000 });
+  await expect(agentMsg).toContainText('thinking it through');
+
+  // Thinking content should also be rendered (not silently dropped)
+  const thinking = page.locator('.tool-call-thinking');
+  await expect(thinking).toBeAttached({ timeout: 5000 });
+  await expect(thinking).toContainText('consider the approach');
+});
