@@ -176,8 +176,11 @@ test('thinking/reasoning display', async ({ page }) => {
   const tagName = await thinking.evaluate(el => el.tagName.toLowerCase());
   expect(tagName).toBe('details');
 
-  // Verify it contains reasoning content
+  // Verify it contains accumulated reasoning content
   await expect(thinking).toContainText('analyzed the problem', { timeout: 5000 });
+
+  // Verify the agent message also rendered
+  await expect(page.locator('.message.agent')).toContainText('Based on my analysis');
 });
 
 test('tool calls render inline between messages in timeline order', async ({ page }) => {

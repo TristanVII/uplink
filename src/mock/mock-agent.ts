@@ -308,25 +308,29 @@ async function scenarioPlanThenExecute(
 }
 
 async function scenarioReasoning(requestId: number | string): Promise<void> {
-  sendPromptUpdate(requestId, {
-    sessionUpdate: "tool_call",
-    toolCallId: "think-1",
-    title: "Reasoning",
-    kind: "think",
-    status: "in_progress",
-    content: [
-      { type: "content", content: { type: "text", text: "Let me think through this step by step..." } },
-    ],
+  // Real CLI sends agent_thought_chunk streamed token-by-token
+  sendSessionUpdate({
+    sessionUpdate: "agent_thought_chunk",
+    content: { type: "text", text: "Let me think through this" },
   });
-  await delay(100);
-  sendPromptUpdate(requestId, {
-    sessionUpdate: "tool_call_update",
-    toolCallId: "think-1",
-    status: "completed",
-    content: [
-      { type: "content", content: { type: "text", text: "I've analyzed the problem. The key insight is that we need to consider both performance and readability." } },
-    ],
+  await delay(30);
+  sendSessionUpdate({
+    sessionUpdate: "agent_thought_chunk",
+    content: { type: "text", text: " step by step..." },
   });
+  await delay(30);
+  sendSessionUpdate({
+    sessionUpdate: "agent_thought_chunk",
+    content: { type: "text", text: " I've analyzed the problem." },
+  });
+  await delay(30);
+  sendSessionUpdate({
+    sessionUpdate: "agent_thought_chunk",
+    content: { type: "text", text: " The key insight is that we need to consider both performance and readability." },
+  });
+  await delay(50);
+  // Real CLI sends whitespace chunk between thinking and text
+  sendPromptChunk(requestId, "\n\n");
   sendPromptChunk(requestId, "Based on my analysis, here's what I recommend...");
   respondToPrompt(
     requestId,
