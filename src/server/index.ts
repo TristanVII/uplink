@@ -102,12 +102,9 @@ export function startServer(options: ServerOptions): ServerResult {
 
   const resolvedCwd = options.cwd || process.cwd();
 
-  // Track the selected model (may be set by WS connection query params or uplink/set_model)
-  let selectedModel: string | undefined;
-
   // Token endpoint (must be before SPA fallback)
   app.get('/api/token', (_req, res) => {
-    res.json({ token: sessionToken, cwd: resolvedCwd, model: selectedModel ?? null });
+    res.json({ token: sessionToken, cwd: resolvedCwd });
   });
 
   // Sessions endpoint
@@ -143,13 +140,9 @@ export function startServer(options: ServerOptions): ServerResult {
   let activeSocket: WebSocket | null = null;
 
   wss.on('connection', (ws, request) => {
-    // Validate session token and read model from query params
+    // Validate session token
     const url = new URL(request.url!, `http://localhost`);
     const token = url.searchParams.get('token');
-    const urlModel = url.searchParams.get('model');
-    if (urlModel) {
-      selectedModel = urlModel;
-    }
     if (token !== sessionToken) {
       ws.close(4001, 'Unauthorized');
       return;
@@ -180,10 +173,6 @@ export function startServer(options: ServerOptions): ServerResult {
     } else {
       command = options.copilotCommand ?? 'copilot';
       args = options.copilotArgs ?? ['--acp', '--stdio'];
-    }
-
-    if (selectedModel) {
-      args = [...args, '--model', selectedModel];
     }
 
     // Discover plugin skills for copilot ACP mode
