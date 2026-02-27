@@ -182,11 +182,8 @@ export function startServer(options: ServerOptions): ServerResult {
       args = options.copilotArgs ?? ['--acp', '--stdio'];
     }
 
-    // Save base args for potential bridge restarts with a different model
-    const baseArgs = args;
-    let spawnedWithModel = selectedModel;
     if (selectedModel) {
-      args = [...baseArgs, '--model', selectedModel];
+      args = [...args, '--model', selectedModel];
     }
 
     // Discover plugin skills for copilot ACP mode
@@ -283,72 +280,18 @@ export function startServer(options: ServerOptions): ServerResult {
       }
 
       if (parsed?.method === 'uplink/set_model') {
-        const newModel = parsed.params?.model || undefined;
-        const needsRestart = activeBridge && spawnedWithModel !== newModel;
-        selectedModel = newModel;
-
-        if (needsRestart) {
-          // kill() removes all listeners, so the bridge close won't close the WS
-          activeBridge!.kill();
-          activeBridge = null;
-
-          const newArgs = newModel ? [...baseArgs, '--model', newModel] : [...baseArgs];
-          const newBridgeOptions: BridgeOptions = {
-            command,
-            args: newArgs,
-            cwd: resolvedCwd,
-            env: Object.keys(bridgeEnv).length > 0 ? bridgeEnv : undefined,
-          };
-          console.log(`Restarting bridge: ${command} ${newArgs.join(' ')}`);
-          const newBridge = new Bridge(newBridgeOptions);
-          activeBridge = newBridge;
-          bridge = newBridge;
-          spawnedWithModel = newModel;
-
-          try {
-            newBridge.spawn();
-          } catch (err) {
-            console.error('Failed to restart bridge:', err);
-            if (parsed.id !== undefined) {
-              ws.send(JSON.stringify({
-                jsonrpc: '2.0',
-                id: parsed.id,
-                error: { code: -1, message: 'Failed to restart bridge with new model' },
-              }));
-            }
-            ws.close(1011, 'Failed to restart bridge');
-            return;
-          }
-
-          newBridge.onMessage((line) => {
-            if (ws.readyState !== WebSocket.OPEN) return;
-            if (pendingSessionNewIds.size > 0) {
-              try {
-                const msg = JSON.parse(line);
-                if (msg.id != null && pendingSessionNewIds.has(msg.id) && msg.result?.sessionId) {
-                  pendingSessionNewIds.delete(msg.id);
-                  recordSession(resolvedCwd, msg.result.sessionId);
-                }
-              } catch { /* ignore */ }
-            }
-            ws.send(line);
-          });
-          newBridge.onError((err) => {
-            console.error('Bridge error:', err);
-            if (ws.readyState === WebSocket.OPEN) ws.close(1011, 'Bridge error');
-          });
-          newBridge.onClose((code) => {
-            console.log(`Bridge closed with code ${code}`);
-            if (ws.readyState === WebSocket.OPEN) ws.close(1000, 'Bridge closed');
-            if (activeBridge === newBridge) activeBridge = null;
-          });
-        }
+        // Just update the selected model. The client will disconnect and
+        // reconnect with the new model in the URL query string, which
+        // spawns a fresh bridge. No need to spawn one here — doing so
+        // caused a double-spawn where Bridge #1 was immediately killed
+        // when the client disconnected.
+        selectedModel = parsed.params?.model || undefined;
 
         if (parsed.id !== undefined) {
           ws.send(JSON.stringify({
             jsonrpc: '2.0',
             id: parsed.id,
-            result: { model: selectedModel ?? null, restarted: !!needsRestart },
+            result: { model: selectedModel ?? null },
           }));
         }
         return;
