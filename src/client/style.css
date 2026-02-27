@@ -38,14 +38,14 @@ html.dark {
   --text-secondary: #a6adc8;
   --accent: #cba6f7;
   --accent-hover: #b4befe;
-  --accent-subtle: rgba(203, 166, 247, 0.15);
+  --accent-subtle: rgb(203, 166, 247, 0.15);
   --border: #45475a;
   --danger: #f38ba8;
   --success: #a6e3a1;
   --warning: #f9e2af;
-  --warning-subtle: rgba(249, 226, 175, 0.1);
-  --warning-glow-soft: rgba(249, 226, 175, 0.15);
-  --warning-glow: rgba(249, 226, 175, 0.3);
+  --warning-subtle: rgb(249, 226, 175, 0.1);
+  --warning-glow-soft: rgb(249, 226, 175, 0.15);
+  --warning-glow: rgb(249, 226, 175, 0.3);
   --info: #89b4fa;
   --peach: #fab387;
   --user-msg-bg: #45475a;
@@ -61,14 +61,14 @@ html.light {
   --text-secondary: #6c6f85;
   --accent: #8839ef;
   --accent-hover: #7287fd;
-  --accent-subtle: rgba(136, 57, 239, 0.1);
+  --accent-subtle: rgb(136, 57, 239, 0.1);
   --border: #ccd0da;
   --danger: #d20f39;
   --success: #40a02b;
   --warning: #df8e1d;
-  --warning-subtle: rgba(223, 142, 29, 0.1);
-  --warning-glow-soft: rgba(223, 142, 29, 0.15);
-  --warning-glow: rgba(223, 142, 29, 0.3);
+  --warning-subtle: rgb(223, 142, 29, 0.1);
+  --warning-glow-soft: rgb(223, 142, 29, 0.15);
+  --warning-glow: rgb(223, 142, 29, 0.3);
   --info: #1e66f5;
   --peach: #fe640b;
   --user-msg-bg: #ccd0da;
@@ -224,7 +224,7 @@ body, html {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 16px rgb(0, 0, 0, 0.2);
   min-width: 200px;
   z-index: 20;
   padding: var(--space-2) 0;
@@ -406,14 +406,14 @@ body, html {
   align-self: flex-end;
   background-color: var(--user-msg-bg);
   color: var(--user-msg-text);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 1px 3px rgb(0, 0, 0, 0.15);
 }
 
 .message.agent {
   align-self: flex-start;
   background-color: var(--bg-secondary);
   border: 1px solid var(--border);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 1px 2px rgb(0, 0, 0, 0.1);
 }
 
 .thinking-indicator .thinking-dots {
@@ -462,7 +462,7 @@ pre {
 
 code {
   font-family: var(--font-mono);
-  background-color: rgba(127, 127, 127, 0.1);
+  background-color: rgb(127, 127, 127, 0.1);
   padding: 0.2em 0.4em;
   border-radius: var(--radius-sm);
   font-size: 0.9em;
@@ -841,8 +841,8 @@ html.dark .hljs-template-variable { color: #f38ba8; }
 
 html.dark .hljs-meta { color: #94e2d5; }
 
-html.dark .hljs-addition { color: #a6e3a1; background-color: rgba(166, 227, 161, 0.1); }
-html.dark .hljs-deletion { color: #f38ba8; background-color: rgba(243, 139, 168, 0.1); }
+html.dark .hljs-addition { color: #a6e3a1; background-color: rgb(166, 227, 161, 0.1); }
+html.dark .hljs-deletion { color: #f38ba8; background-color: rgb(243, 139, 168, 0.1); }
 
 /* Syntax Highlighting — Catppuccin Latte */
 html.light .hljs-keyword,
@@ -869,8 +869,8 @@ html.light .hljs-template-variable { color: #d20f39; }
 
 html.light .hljs-meta { color: #179299; }
 
-html.light .hljs-addition { color: #40a02b; background-color: rgba(64, 160, 43, 0.1); }
-html.light .hljs-deletion { color: #d20f39; background-color: rgba(210, 15, 57, 0.1); }
+html.light .hljs-addition { color: #40a02b; background-color: rgb(64, 160, 43, 0.1); }
+html.light .hljs-deletion { color: #d20f39; background-color: rgb(210, 15, 57, 0.1); }
 
 /* Mobile Responsive */
 @media (max-width: 600px) {
@@ -891,7 +891,7 @@ html.light .hljs-deletion { color: #d20f39; background-color: rgba(210, 15, 57, 
 .sessions-overlay {
   position: fixed;
   inset: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: rgb(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -913,7 +913,7 @@ html.light .hljs-deletion { color: #d20f39; background-color: rgba(210, 15, 57, 
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 32px rgb(0, 0, 0, 0.3);
 }
 
 .sessions-panel-header {
