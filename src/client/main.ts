@@ -5,6 +5,7 @@ import { ShellOutput } from './ui/shell.js';
 import { showPermissionRequest, cancelAllPermissions } from './ui/permission.js';
 import { fetchSessions, openSessionsModal, SessionsModal } from './ui/sessions.js';
 import { render, h } from 'preact';
+import 'material-symbols/outlined.css';
 
 // ─── Constants ────────────────────────────────────────────────────────
 

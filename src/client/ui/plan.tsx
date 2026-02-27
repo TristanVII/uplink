@@ -2,18 +2,19 @@ import { h } from 'preact';
 import { useState, useEffect } from 'preact/hooks';
 import type { PlanEntry } from '../../shared/acp-types.js';
 import { Conversation } from '../conversation.js';
+import { Icon } from './icon.js';
 
 const STATUS_ICONS: Record<PlanEntry['status'], string> = {
-  pending: '⏳',
-  in_progress: '🔄',
-  completed: '✅',
+  pending: 'pending',
+  in_progress: 'sync',
+  completed: 'check_circle',
 };
 
 function PlanEntryRow({ entry }: { entry: PlanEntry }) {
   const statusClass = entry.status === 'in_progress' ? 'in-progress' : entry.status;
   return (
     <li class={`plan-entry ${statusClass}`}>
-      <span class="plan-status-icon">{STATUS_ICONS[entry.status]}</span>
+      <Icon name={STATUS_ICONS[entry.status]} class="plan-status-icon" />
       <span class="plan-content">{entry.content}</span>
       <span class={`plan-priority priority-${entry.priority}`}>{entry.priority}</span>
     </li>
@@ -32,7 +33,7 @@ export function PlanCard({ conversation }: { conversation: Conversation }) {
 
   return (
     <div class="plan-card">
-      <div class="plan-header">📋 Plan</div>
+      <div class="plan-header"><Icon name="assignment" class="plan-header-icon" /> Plan</div>
       <ul class="plan">
         {plan.entries.map((entry, i) => (
           <PlanEntryRow key={i} entry={entry} />

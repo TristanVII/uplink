@@ -52,6 +52,11 @@ test('dark/light mode toggle', async ({ page }) => {
 
 test('toggle icons change with state', async ({ page }) => {
   await page.goto('/');
+
+  // Menu button should use Material Symbols
+  const menuIcon = page.locator('#menu-toggle .material-symbols-outlined');
+  await expect(menuIcon).toBeVisible();
+
   await page.locator('#menu-toggle').click();
 
   const themeLabel = page.locator('label[for="theme-toggle"]');
@@ -197,6 +202,10 @@ test('tool calls render inline between messages in timeline order', async ({ pag
 
   expect(toolCallBox!.y).toBeGreaterThan(userMsgBox!.y);
   expect(agentMsgBox!.y).toBeGreaterThan(toolCallBox!.y);
+
+  // Tool call icon should use Material Symbols
+  const kindIcon = toolCall.locator('.material-symbols-outlined').first();
+  await expect(kindIcon).toBeVisible();
 });
 
 test('permission buttons have readable contrast in dark mode', async ({ page }) => {
@@ -251,6 +260,10 @@ test('permission prompt appears inside the chat flow, not below it', async ({ pa
   const userMessageRect = await userMessage.boundingBox();
   const permissionRect = await permissionCard.boundingBox();
   expect(permissionRect!.y).toBeGreaterThan(userMessageRect!.y);
+
+  // Permission icon should use Material Symbols
+  const permIcon = permissionCard.locator('.material-symbols-outlined').first();
+  await expect(permIcon).toBeVisible();
 });
 
 test('shows thinking indicator while waiting for agent response', async ({ page }) => {

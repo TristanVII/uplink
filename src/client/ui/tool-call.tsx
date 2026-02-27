@@ -2,20 +2,21 @@ import { h } from 'preact';
 import { useState, useEffect } from 'preact/hooks';
 import { Conversation, TrackedToolCall } from '../conversation.js';
 import type { ToolKind, ToolCallContent } from '../../shared/acp-types.js';
+import { Icon } from './icon.js';
 
 // ─── Pure helpers ─────────────────────────────────────────────────────
 
 function getKindIcon(kind: ToolKind): string {
   switch (kind) {
-    case 'read': return '📖';
-    case 'edit': return '✏️';
-    case 'delete': return '🗑️';
-    case 'move': return '📦';
-    case 'search': return '🔍';
-    case 'execute': return '▶️';
-    case 'think': return '💭';
-    case 'fetch': return '🌐';
-    case 'other': return '⚙️';
+    case 'read': return 'description';
+    case 'edit': return 'edit';
+    case 'delete': return 'delete';
+    case 'move': return 'drive_file_move';
+    case 'search': return 'search';
+    case 'execute': return 'terminal';
+    case 'think': return 'psychology';
+    case 'fetch': return 'language';
+    case 'other': return 'settings';
   }
 }
 
@@ -64,7 +65,7 @@ function ThinkingBlock({ tc }: { tc: TrackedToolCall }) {
       data-tool-call-id={tc.toolCallId}
     >
       <summary class="tool-call-header thinking-header">
-        <span class="kind-icon">💭</span>
+        <Icon name="psychology" class="kind-icon" />
         <span class="tool-call-title">
           {tc.status === 'completed' ? 'Thought' : 'Thinking…'}
         </span>
@@ -90,7 +91,7 @@ export function ToolCallCard({ tc }: { tc: TrackedToolCall }) {
         class="tool-call-header"
         onClick={() => setCollapsed(!collapsed)}
       >
-        <span class="kind-icon">{getKindIcon(tc.kind)}</span>
+        <Icon name={getKindIcon(tc.kind)} class="kind-icon" />
         <span class="tool-call-title">{tc.title}</span>
         <span class={`status ${tc.status}`}>{tc.status}</span>
       </div>

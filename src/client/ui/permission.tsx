@@ -5,6 +5,7 @@ import type {
   PermissionOption,
   PermissionOutcome,
 } from '../../shared/acp-types.js';
+import { Icon } from './icon.js';
 
 export type PermissionResponder = (outcome: PermissionOutcome) => void;
 
@@ -100,7 +101,7 @@ export function PermissionCard({
     return (
       <div class="permission-request resolved">
         <div class="permission-header">
-          <span class="permission-icon">{wasApproved ? '✅' : '❌'}</span>
+          <Icon name={wasApproved ? 'check_circle' : 'cancel'} class="permission-icon" />
           <span class="permission-title">{req.title}</span>
           <span class={`permission-outcome ${wasApproved ? 'approved' : 'denied'}`}>
             {wasApproved ? 'Approved' : 'Denied'}
@@ -113,7 +114,7 @@ export function PermissionCard({
   return (
     <div class={`permission-request${resolved ? ' resolved' : ''}`}>
       <div class="permission-header">
-        <span class="permission-icon">🔐</span>
+        <Icon name="lock" class="permission-icon" />
         <span class="permission-title">{req.title}</span>
       </div>
       <div class="permission-message">

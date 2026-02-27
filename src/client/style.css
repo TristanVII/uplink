@@ -54,6 +54,12 @@ html.light {
   box-sizing: border-box;
 }
 
+/* Material Symbols — size to match surrounding text by default */
+.material-symbols-outlined {
+  font-size: 1.2em;
+  vertical-align: middle;
+}
+
 [hidden] {
   display: none !important;
 }
@@ -561,6 +567,7 @@ button:disabled {
 }
 
 .tool-call .kind-icon {
+  font-size: 18px;
   margin-right: 0.5rem;
   opacity: 0.7;
 }
@@ -650,6 +657,10 @@ button:disabled {
   gap: 0.5rem;
 }
 
+.permission-icon {
+  font-size: 18px;
+}
+
 .permission-request.resolved .permission-header {
   margin-bottom: 0;
 }
@@ -697,21 +708,17 @@ button:disabled {
 }
 
 .plan-status-icon {
-  width: 16px;
-  height: 16px;
+  font-size: 18px;
   flex-shrink: 0;
-  border-radius: 50%;
-  border: 2px solid var(--text-secondary);
+  color: var(--text-secondary);
 }
 
 .plan-entry.completed .plan-status-icon {
-  background-color: var(--success);
-  border-color: var(--success);
+  color: var(--success);
 }
 
 .plan-entry.in-progress .plan-status-icon {
-  border-color: var(--info);
-  border-top-color: transparent;
+  color: var(--info);
   animation: spin 1s linear infinite;
 }
 
