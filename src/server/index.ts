@@ -5,6 +5,7 @@ import { exec } from 'node:child_process';
 import { readdirSync, existsSync } from 'node:fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import { Bridge, type BridgeOptions } from './bridge.js';
+import { TerminalSession } from './terminal.js';
 import path from 'node:path';
 import { homedir } from 'node:os';
 import { getRecentSessions, recordSession, renameSession } from './sessions.js';
@@ -133,11 +134,29 @@ export function startServer(options: ServerOptions): ServerResult {
   }
 
   const server = createServer(app);
-  const wss = new WebSocketServer({ server, path: '/ws' });
+  const wss = new WebSocketServer({ noServer: true });
+  const terminalWss = new WebSocketServer({ noServer: true });
+
+  // Route upgrade requests to the correct WebSocket server
+  server.on('upgrade', (request, socket, head) => {
+    const pathname = new URL(request.url!, `http://localhost`).pathname;
+    if (pathname === '/ws/terminal') {
+      terminalWss.handleUpgrade(request, socket, head, (ws) => {
+        terminalWss.emit('connection', ws, request);
+      });
+    } else if (pathname === '/ws') {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+      });
+    } else {
+      socket.destroy();
+    }
+  });
 
   // Track the active bridge and socket
   let activeBridge: Bridge | null = null;
   let activeSocket: WebSocket | null = null;
+  let activeTerminal: TerminalSession | null = null;
 
   wss.on('connection', (ws, request) => {
     // Validate session token
@@ -294,7 +313,71 @@ export function startServer(options: ServerOptions): ServerResult {
     });
   });
 
+  // ─── Terminal WebSocket ────────────────────────────────────────────
+  terminalWss.on('connection', (ws, request) => {
+    const url = new URL(request.url!, `http://localhost`);
+    const token = url.searchParams.get('token');
+    if (token !== sessionToken) {
+      ws.close(4001, 'Unauthorized');
+      return;
+    }
+
+    // Kill any existing terminal session
+    if (activeTerminal) {
+      activeTerminal.kill();
+      activeTerminal = null;
+    }
+
+    console.log('Terminal client connected');
+
+    const terminal = new TerminalSession({ cwd: resolvedCwd });
+    activeTerminal = terminal;
+
+    terminal.onData((data) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'data', data }));
+      }
+    });
+
+    terminal.onExit((code) => {
+      console.log(`Terminal exited with code ${code}`);
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'exit', code }));
+        ws.close(1000, 'Terminal exited');
+      }
+      if (activeTerminal === terminal) {
+        activeTerminal = null;
+      }
+    });
+
+    ws.on('message', (message) => {
+      try {
+        const msg = JSON.parse(message.toString());
+        if (msg.type === 'data' && typeof msg.data === 'string') {
+          terminal.write(msg.data);
+        } else if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number') {
+          terminal.resize(msg.cols, msg.rows);
+        }
+      } catch {
+        // ignore malformed messages
+      }
+    });
+
+    ws.on('close', () => {
+      console.log('Terminal client disconnected');
+      terminal.kill();
+      if (activeTerminal === terminal) {
+        activeTerminal = null;
+      }
+    });
+  });
+
   const close = () => {
+    if (activeTerminal) {
+      activeTerminal.kill();
+      activeTerminal = null;
+    }
+
     if (activeBridge) {
       activeBridge.kill();
       activeBridge = null;

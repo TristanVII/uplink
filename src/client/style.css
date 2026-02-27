@@ -941,6 +941,59 @@ html.light .hljs-deletion { color: #d20f39; background-color: rgb(210 15 57 / 10
   margin-top: var(--space-1);
 }
 
+/* Tab Bar */
+#tab-bar {
+  display: flex;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  padding: 0 var(--space-4);
+  gap: var(--space-1);
+}
+
+#tab-bar .tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+#tab-bar .tab:hover {
+  color: var(--text-primary);
+  background: none;
+}
+
+#tab-bar .tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: none;
+}
+
+#tab-bar .tab .material-symbols-outlined {
+  font-size: 18px;
+}
+
+/* Terminal Area */
+#terminal-area {
+  flex: 1;
+  overflow: hidden;
+  padding: var(--space-2);
+}
+
+.terminal-container {
+  height: 100%;
+}
+
 /* Shell Output */
 .shell-output {
   background-color: var(--bg-tertiary);

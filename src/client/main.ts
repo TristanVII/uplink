@@ -1,6 +1,7 @@
 import { AcpClient, ConnectionState } from './acp-client.js';
 import { Conversation } from './conversation.js';
 import { ChatList } from './ui/chat.js';
+import { TerminalPanel } from './ui/terminal.js';
 import { showPermissionRequest, cancelAllPermissions } from './ui/permission.js';
 import { fetchSessions, openSessionsModal, SessionsModal } from './ui/sessions.js';
 import { CommandPalette, type PaletteItem } from './ui/command-palette.js';
@@ -11,12 +12,33 @@ import 'material-symbols/outlined.css';
 // ─── DOM References ───────────────────────────────────────────────────
 
 const chatArea = document.getElementById('chat-area')!;
+const terminalArea = document.getElementById('terminal-area')!;
 const promptInput = document.getElementById('prompt-input') as HTMLTextAreaElement;
 const sendBtn = document.getElementById('send-btn') as HTMLButtonElement;
 const cancelBtn = document.getElementById('cancel-btn') as HTMLButtonElement;
 const modelLabel = document.getElementById('model-label')!;
+const tabButtons = document.querySelectorAll<HTMLButtonElement>('#tab-bar .tab');
 
 let yoloMode = localStorage.getItem('uplink-yolo') === 'true';
+
+// ─── Tab Switching ────────────────────────────────────────────────────
+
+let activeTab: 'chat' | 'terminal' = 'chat';
+
+function switchTab(tab: 'chat' | 'terminal'): void {
+  activeTab = tab;
+  tabButtons.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  chatArea.hidden = tab !== 'chat';
+  document.getElementById('input-area')!.hidden = tab !== 'chat';
+  terminalArea.hidden = tab !== 'terminal';
+  renderTerminal();
+}
+
+tabButtons.forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab as 'chat' | 'terminal'));
+});
 
 // ─── Mode ─────────────────────────────────────────────────────────────
 
@@ -83,6 +105,15 @@ const sessionsModalContainer = document.createElement('div');
 document.body.appendChild(sessionsModalContainer);
 render(h(SessionsModal, {}), sessionsModalContainer);
 
+// Mount terminal panel
+let terminalWsUrl = '';
+function renderTerminal(): void {
+  render(
+    h(TerminalPanel, { wsUrl: terminalWsUrl, visible: activeTab === 'terminal' }),
+    terminalArea,
+  );
+}
+
 /** Clear all conversation state when session changes. */
 function clearConversation(): void {
   conversation.clear();
@@ -123,6 +154,8 @@ async function initializeClient() {
   clientCwd = cwd;
 
   const wsUrl = `${wsProtocol}//${location.host}/ws?token=${encodeURIComponent(token)}`;
+  terminalWsUrl = `${wsProtocol}//${location.host}/ws/terminal?token=${encodeURIComponent(token)}`;
+  renderTerminal();
 
   return new AcpClient({
     wsUrl,
