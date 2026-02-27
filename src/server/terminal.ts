@@ -9,7 +9,18 @@ export interface TerminalOptions {
 
 function defaultShell(): string {
   if (process.platform === 'win32') return 'powershell.exe';
-  return process.env.SHELL || '/bin/bash';
+  return process.env.SHELL || '/bin/zsh';
+}
+
+/** Build a clean string-only env from process.env (node-pty requires all values to be strings). */
+function sanitizeEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === 'string') {
+      env[key] = value;
+    }
+  }
+  return env;
 }
 
 export class TerminalSession {
@@ -18,12 +29,15 @@ export class TerminalSession {
   private exitCallback: ((code: number) => void) | null = null;
 
   constructor(options: TerminalOptions) {
-    this.pty = ptySpawn(defaultShell(), [], {
+    const shell = defaultShell();
+    const env = options.env ?? sanitizeEnv();
+
+    this.pty = ptySpawn(shell, [], {
       name: 'xterm-256color',
       cols: options.cols || 80,
       rows: options.rows || 24,
       cwd: options.cwd,
-      env: options.env ?? (process.env as Record<string, string>),
+      env,
     });
 
     this.pty.onData((data) => {

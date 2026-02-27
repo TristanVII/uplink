@@ -330,7 +330,14 @@ export function startServer(options: ServerOptions): ServerResult {
 
     console.log('Terminal client connected');
 
-    const terminal = new TerminalSession({ cwd: resolvedCwd });
+    let terminal: TerminalSession;
+    try {
+      terminal = new TerminalSession({ cwd: resolvedCwd });
+    } catch (err) {
+      console.error('Failed to spawn terminal:', err);
+      ws.close(1011, 'Failed to spawn terminal');
+      return;
+    }
     activeTerminal = terminal;
 
     terminal.onData((data) => {
