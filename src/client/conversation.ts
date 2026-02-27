@@ -191,11 +191,6 @@ export class Conversation {
 
   // ─── Computed helpers ─────────────────────────────────────────────
 
-  get currentAgentMessage(): ConversationMessage | undefined {
-    const last = this.messages[this.messages.length - 1];
-    return last?.role === "agent" ? last : undefined;
-  }
-
   get activeToolCalls(): TrackedToolCall[] {
     return [...this.toolCalls.values()].filter(
       (tc) => tc.status !== "completed" && tc.status !== "failed",

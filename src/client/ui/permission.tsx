@@ -147,22 +147,3 @@ export function PermissionCard({
     </div>
   );
 }
-
-/** Renders all active permission requests. Mount once in chatArea. */
-export function PermissionList({
-  conversation,
-}: {
-  conversation: Conversation;
-}) {
-  return (
-    <>
-      {activeRequests.value.map((req) => (
-        <PermissionCard
-          key={req.requestId}
-          req={req}
-          conversation={conversation}
-        />
-      ))}
-    </>
-  );
-}

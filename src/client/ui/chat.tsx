@@ -103,7 +103,7 @@ function ChatMessage({ msg }: { msg: ConversationMessage }) {
 }
 
 /**
- * Renders a single timeline entry (message, tool call, permission, or plan).
+ * Renders a single timeline entry.
  */
 function TimelineItem({
   entry,
@@ -195,9 +195,4 @@ export function ChatList({
       <div ref={bottomRef} />
     </>
   );
-}
-
-/** Scroll the chat area to the bottom (for use by main.ts after shell output). */
-export function scrollChatToBottom(chatArea: HTMLElement): void {
-  chatArea.scrollTop = chatArea.scrollHeight;
 }

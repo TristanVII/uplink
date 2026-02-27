@@ -140,18 +140,10 @@ const sessionsModalContainer = document.createElement('div');
 document.body.appendChild(sessionsModalContainer);
 render(h(SessionsModal, {}), sessionsModalContainer);
 
-/** Clear all conversation state and DOM when session changes. */
-const preactContainers: Set<Node> = new Set([chatContainer]);
-
+/** Clear all conversation state when session changes. */
 function clearConversation(): void {
   conversation.clear();
   cancelAllPermissions(conversation);
-  // Remove any orphan DOM elements outside Preact mount points
-  for (const child of [...chatArea.childNodes]) {
-    if (!preactContainers.has(child)) {
-      chatArea.removeChild(child);
-    }
-  }
 }
 
 // ─── WebSocket / ACP Client ──────────────────────────────────────────

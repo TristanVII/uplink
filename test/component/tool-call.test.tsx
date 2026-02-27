@@ -2,71 +2,42 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { render, cleanup, fireEvent, act } from '@testing-library/preact';
+import { render, cleanup, fireEvent } from '@testing-library/preact';
 import { h } from 'preact';
-import { Conversation } from '../../src/client/conversation.js';
-import { ToolCallList } from '../../src/client/ui/tool-call.js';
+import { ToolCallCard } from '../../src/client/ui/tool-call.js';
+import type { TrackedToolCall } from '../../src/client/conversation.js';
 
 afterEach(cleanup);
 
-function makeConversation() {
-  return new Conversation();
+function makeTc(overrides: Partial<TrackedToolCall> = {}): TrackedToolCall {
+  return {
+    toolCallId: 'tc-1',
+    title: 'Read file.ts',
+    kind: 'read',
+    status: 'pending',
+    content: [],
+    locations: [],
+    ...overrides,
+  };
 }
 
-describe('ToolCallList', () => {
+describe('ToolCallCard', () => {
   it('renders a tool call with icon, title, and status', () => {
-    const conv = makeConversation();
-    conv.handleSessionUpdate({
-      sessionUpdate: 'tool_call',
-      toolCallId: 'tc-1',
-      title: 'Read file.ts',
-      kind: 'read',
-      status: 'pending',
-    });
+    const { container } = render(<ToolCallCard tc={makeTc()} />);
 
-    const { container } = render(<ToolCallList conversation={conv} />);
-
-    expect(container.querySelector('.kind-icon')!.textContent).toBe('📖');
+    expect(container.querySelector('.kind-icon')!.textContent).toBe('description');
     expect(container.querySelector('.tool-call-title')!.textContent).toBe('Read file.ts');
     expect(container.querySelector('.status')!.textContent).toBe('pending');
   });
 
-  it('updates status when tool call progresses', () => {
-    const conv = makeConversation();
-    conv.handleSessionUpdate({
-      sessionUpdate: 'tool_call',
-      toolCallId: 'tc-2',
-      title: 'Edit main.ts',
-      kind: 'edit',
-      status: 'pending',
-    });
-
-    const { container } = render(<ToolCallList conversation={conv} />);
-    expect(container.querySelector('.status')!.textContent).toBe('pending');
-
-    act(() => {
-      conv.handleSessionUpdate({
-        sessionUpdate: 'tool_call_update',
-        toolCallId: 'tc-2',
-        status: 'completed',
-      });
-    });
-
-    expect(container.querySelector('.status')!.textContent).toBe('completed');
-  });
-
   it('renders thinking block as <details>', () => {
-    const conv = makeConversation();
-    conv.handleSessionUpdate({
-      sessionUpdate: 'tool_call',
+    const tc = makeTc({
       toolCallId: 'think-1',
-      title: '',
       kind: 'think',
       status: 'in_progress',
       content: [{ type: 'content', content: { type: 'text', text: 'Analyzing...' } }],
     });
-
-    const { container } = render(<ToolCallList conversation={conv} />);
+    const { container } = render(<ToolCallCard tc={tc} />);
 
     const details = container.querySelector('details.tool-call-thinking');
     expect(details).toBeTruthy();
@@ -74,48 +45,33 @@ describe('ToolCallList', () => {
   });
 
   it('thinking shows "Thought" when completed', () => {
-    const conv = makeConversation();
-    conv.handleSessionUpdate({
-      sessionUpdate: 'tool_call',
+    const tc = makeTc({
       toolCallId: 'think-2',
-      title: '',
       kind: 'think',
       status: 'completed',
       content: [{ type: 'content', content: { type: 'text', text: 'Done thinking.' } }],
     });
-
-    const { container } = render(<ToolCallList conversation={conv} />);
+    const { container } = render(<ToolCallCard tc={tc} />);
     expect(container.querySelector('.tool-call-title')!.textContent).toBe('Thought');
   });
 
   it('body is collapsed by default for non-thinking tool calls', () => {
-    const conv = makeConversation();
-    conv.handleSessionUpdate({
-      sessionUpdate: 'tool_call',
-      toolCallId: 'tc-3',
-      title: 'Search files',
-      kind: 'search',
+    const tc = makeTc({
       status: 'completed',
       content: [{ type: 'content', content: { type: 'text', text: 'Found 3 results' } }],
     });
-
-    const { container } = render(<ToolCallList conversation={conv} />);
+    const { container } = render(<ToolCallCard tc={tc} />);
     const body = container.querySelector('.tool-call-body') as HTMLElement;
     expect(body.hidden).toBe(true);
   });
 
   it('expands body on header click', () => {
-    const conv = makeConversation();
-    conv.handleSessionUpdate({
-      sessionUpdate: 'tool_call',
-      toolCallId: 'tc-4',
-      title: 'Execute command',
+    const tc = makeTc({
       kind: 'execute',
       status: 'completed',
       content: [{ type: 'content', content: { type: 'text', text: 'Output here' } }],
     });
-
-    const { container } = render(<ToolCallList conversation={conv} />);
+    const { container } = render(<ToolCallCard tc={tc} />);
     const header = container.querySelector('.tool-call-header')!;
     const body = container.querySelector('.tool-call-body') as HTMLElement;
 
@@ -127,12 +83,9 @@ describe('ToolCallList', () => {
   });
 
   it('renders diff content with old/new text', () => {
-    const conv = makeConversation();
-    conv.handleSessionUpdate({
-      sessionUpdate: 'tool_call',
-      toolCallId: 'tc-5',
-      title: 'Edit file',
+    const tc = makeTc({
       kind: 'edit',
+      title: 'Edit file',
       status: 'completed',
       content: [{
         type: 'diff',
@@ -141,9 +94,7 @@ describe('ToolCallList', () => {
         newText: 'const x = 2;',
       }],
     });
-
-    const { container } = render(<ToolCallList conversation={conv} />);
-    // Expand to see content
+    const { container } = render(<ToolCallCard tc={tc} />);
     fireEvent.click(container.querySelector('.tool-call-header')!);
 
     expect(container.textContent).toContain('src/app.ts');
@@ -151,53 +102,31 @@ describe('ToolCallList', () => {
     expect(container.textContent).toContain('const x = 2;');
   });
 
-  it('renders multiple tool calls', () => {
-    const conv = makeConversation();
-    conv.handleSessionUpdate({
-      sessionUpdate: 'tool_call',
-      toolCallId: 'tc-a',
-      title: 'First',
-      kind: 'read',
-      status: 'completed',
-    });
-    conv.handleSessionUpdate({
-      sessionUpdate: 'tool_call',
-      toolCallId: 'tc-b',
-      title: 'Second',
-      kind: 'edit',
-      status: 'pending',
-    });
+  it('shows "No output" when content is empty', () => {
+    const tc = makeTc({ status: 'completed' });
+    const { container } = render(<ToolCallCard tc={tc} />);
+    fireEvent.click(container.querySelector('.tool-call-header')!);
 
-    const { container } = render(<ToolCallList conversation={conv} />);
-    const toolCalls = container.querySelectorAll('.tool-call');
-    expect(toolCalls.length).toBe(2);
+    expect(container.querySelector('.tool-call-empty')!.textContent).toBe('No output');
   });
 
-  it('uses correct icon for each kind', () => {
-    const conv = makeConversation();
+  it('uses correct Material Symbols icon for each kind', () => {
     const kinds = [
-      { kind: 'read', icon: '📖' },
-      { kind: 'edit', icon: '✏️' },
-      { kind: 'execute', icon: '▶️' },
-      { kind: 'fetch', icon: '🌐' },
+      { kind: 'read', icon: 'description' },
+      { kind: 'edit', icon: 'edit' },
+      { kind: 'execute', icon: 'terminal' },
+      { kind: 'fetch', icon: 'language' },
+      { kind: 'search', icon: 'search' },
+      { kind: 'delete', icon: 'delete' },
+      { kind: 'move', icon: 'drive_file_move' },
+      { kind: 'other', icon: 'settings' },
     ] as const;
 
     for (const { kind, icon } of kinds) {
-      conv.handleSessionUpdate({
-        sessionUpdate: 'tool_call',
-        toolCallId: `tc-${kind}`,
-        title: kind,
-        kind,
-        status: 'completed',
-      });
-    }
-
-    const { container } = render(<ToolCallList conversation={conv} />);
-    const icons = container.querySelectorAll('.kind-icon');
-    const iconTexts = [...icons].map(el => el.textContent);
-
-    for (const { icon } of kinds) {
-      expect(iconTexts).toContain(icon);
+      cleanup();
+      const tc = makeTc({ toolCallId: `tc-${kind}`, kind, title: kind });
+      const { container } = render(<ToolCallCard tc={tc} />);
+      expect(container.querySelector('.kind-icon')!.textContent).toBe(icon);
     }
   });
 });

@@ -1,6 +1,6 @@
 import { h } from 'preact';
-import { useState, useEffect } from 'preact/hooks';
-import { Conversation, TrackedToolCall } from '../conversation.js';
+import { useState } from 'preact/hooks';
+import { TrackedToolCall } from '../conversation.js';
 import type { ToolKind, ToolCallContent } from '../../shared/acp-types.js';
 import { Icon } from './icon.js';
 
@@ -110,32 +110,5 @@ export function ToolCallCard({ tc }: { tc: TrackedToolCall }) {
         )}
       </div>
     </div>
-  );
-}
-
-/**
- * Renders all tracked tool calls from the conversation.
- * Bridges Conversation.onChange() into Preact re-renders via a version counter.
- */
-export function ToolCallList({
-  conversation,
-}: {
-  conversation: Conversation;
-}) {
-  const [, setVersion] = useState(0);
-
-  // Re-render whenever the conversation changes
-  useEffect(() => {
-    return conversation.onChange(() => setVersion((v) => v + 1));
-  }, [conversation]);
-
-  const toolCalls = [...conversation.toolCalls.values()];
-
-  return (
-    <>
-      {toolCalls.map((tc) => (
-        <ToolCallCard key={tc.toolCallId} tc={tc} />
-      ))}
-    </>
   );
 }

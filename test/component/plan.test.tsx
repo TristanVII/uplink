@@ -30,16 +30,16 @@ describe('PlanCard', () => {
     const { container } = render(<PlanCard conversation={conv} />);
 
     expect(container.querySelector('.plan-card')).toBeTruthy();
-    expect(container.querySelector('.plan-header')!.textContent).toBe('📋 Plan');
+    expect(container.querySelector('.plan-header')!.textContent).toBe('assignment Plan');
 
     const entries = container.querySelectorAll('.plan-entry');
     expect(entries.length).toBe(3);
 
     // Status icons
     const icons = container.querySelectorAll('.plan-status-icon');
-    expect(icons[0].textContent).toBe('✅');
-    expect(icons[1].textContent).toBe('🔄');
-    expect(icons[2].textContent).toBe('⏳');
+    expect(icons[0].textContent).toBe('check_circle');
+    expect(icons[1].textContent).toBe('sync');
+    expect(icons[2].textContent).toBe('pending');
   });
 
   it('shows priority labels', () => {
@@ -80,7 +80,7 @@ describe('PlanCard', () => {
     });
 
     expect(container.querySelectorAll('.plan-entry').length).toBe(2);
-    expect(container.querySelector('.plan-status-icon')!.textContent).toBe('✅');
+    expect(container.querySelector('.plan-status-icon')!.textContent).toBe('check_circle');
   });
 
   it('applies correct CSS class for in_progress', () => {

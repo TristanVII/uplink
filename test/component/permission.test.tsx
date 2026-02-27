@@ -6,9 +6,10 @@ import { render, screen, cleanup, fireEvent, act } from '@testing-library/preact
 import { h } from 'preact';
 import { Conversation } from '../../src/client/conversation.js';
 import {
-  PermissionList,
+  PermissionCard,
   showPermissionRequest,
   cancelAllPermissions,
+  activeRequests,
 } from '../../src/client/ui/permission.js';
 import type { PermissionOption, PermissionOutcome } from '../../src/shared/acp-types.js';
 
@@ -23,20 +24,23 @@ function makeOptions(): PermissionOption[] {
   ];
 }
 
+/** Helper: create a request via showPermissionRequest and return the ActiveRequest from the signal. */
+function setupRequest(conversation: Conversation, id: number, title: string, respond: (o: PermissionOutcome) => void = () => {}) {
+  showPermissionRequest(conversation, id, `tc-${id}`, title, makeOptions(), respond);
+  return activeRequests.value.find(r => r.requestId === id)!;
+}
+
 describe('PermissionCard', () => {
   let conversation: Conversation;
 
   beforeEach(() => {
     conversation = new Conversation();
-    // Clear any leftover state from previous tests
     cancelAllPermissions(conversation);
   });
 
   it('renders title and options', () => {
-    const respond = () => {};
-    showPermissionRequest(conversation, 1, 'tc-1', 'Edit file.ts', makeOptions(), respond);
-
-    render(<PermissionList conversation={conversation} />);
+    const req = setupRequest(conversation, 1, 'Edit file.ts');
+    render(<PermissionCard req={req} conversation={conversation} />);
 
     expect(screen.getByText('Edit file.ts')).toBeTruthy();
     expect(screen.getByText('Allow once')).toBeTruthy();
@@ -46,75 +50,52 @@ describe('PermissionCard', () => {
 
   it('calls respond with selected option on click', () => {
     let received: PermissionOutcome | undefined;
-    const respond = (o: PermissionOutcome) => { received = o; };
-    showPermissionRequest(conversation, 2, 'tc-2', 'Run command', makeOptions(), respond);
+    const req = setupRequest(conversation, 2, 'Run command', (o) => { received = o; });
+    render(<PermissionCard req={req} conversation={conversation} />);
 
-    render(<PermissionList conversation={conversation} />);
     fireEvent.click(screen.getByText('Allow once'));
-
     expect(received).toEqual({ outcome: 'selected', optionId: 'allow-once' });
   });
 
   it('collapses to summary after selection', () => {
-    const respond = () => {};
-    showPermissionRequest(conversation, 3, 'tc-3', 'Delete file', makeOptions(), respond);
+    const req = setupRequest(conversation, 3, 'Delete file');
+    render(<PermissionCard req={req} conversation={conversation} />);
 
-    render(<PermissionList conversation={conversation} />);
     fireEvent.click(screen.getByText('Allow once'));
-
-    // After resolution, buttons are gone — collapsed to a summary
     expect(screen.queryAllByRole('button')).toHaveLength(0);
     expect(screen.getByText('Approved')).toBeTruthy();
   });
 
   it('shows Approved label after allowing', () => {
-    const respond = () => {};
-    showPermissionRequest(conversation, 4, 'tc-4', 'Write file', makeOptions(), respond);
+    const req = setupRequest(conversation, 4, 'Write file');
+    render(<PermissionCard req={req} conversation={conversation} />);
 
-    render(<PermissionList conversation={conversation} />);
     fireEvent.click(screen.getByText('Allow once'));
-
     expect(screen.getByText('Approved')).toBeTruthy();
   });
 
   it('shows Denied label after rejecting', () => {
-    const respond = () => {};
-    showPermissionRequest(conversation, 5, 'tc-5', 'Execute cmd', makeOptions(), respond);
+    const req = setupRequest(conversation, 5, 'Execute cmd');
+    render(<PermissionCard req={req} conversation={conversation} />);
 
-    render(<PermissionList conversation={conversation} />);
     fireEvent.click(screen.getByText('Deny'));
-
     expect(screen.getByText('Denied')).toBeTruthy();
   });
 
-  it('cancelAll sends cancelled outcome and clears cards', () => {
+  it('cancelAll sends cancelled outcome and clears active requests', () => {
     const outcomes: PermissionOutcome[] = [];
     const respond = (o: PermissionOutcome) => { outcomes.push(o); };
-    showPermissionRequest(conversation, 6, 'tc-6', 'Action A', makeOptions(), respond);
-    showPermissionRequest(conversation, 7, 'tc-7', 'Action B', makeOptions(), respond);
+    setupRequest(conversation, 6, 'Action A', respond);
+    setupRequest(conversation, 7, 'Action B', respond);
 
-    const { container } = render(<PermissionList conversation={conversation} />);
-    expect(container.querySelectorAll('.permission-request').length).toBe(2);
+    expect(activeRequests.value.length).toBe(2);
 
-    act(() => {
-      cancelAllPermissions(conversation);
-    });
+    cancelAllPermissions(conversation);
 
-    // Signal update triggers re-render — permission cards should be gone
-    expect(container.querySelectorAll('.permission-request').length).toBe(0);
+    expect(activeRequests.value.length).toBe(0);
     expect(outcomes).toEqual([
       { outcome: 'cancelled' },
       { outcome: 'cancelled' },
     ]);
-  });
-
-  it('renders multiple permission requests', () => {
-    showPermissionRequest(conversation, 8, 'tc-8', 'First', makeOptions(), () => {});
-    showPermissionRequest(conversation, 9, 'tc-9', 'Second', makeOptions(), () => {});
-
-    render(<PermissionList conversation={conversation} />);
-
-    expect(screen.getByText('First')).toBeTruthy();
-    expect(screen.getByText('Second')).toBeTruthy();
   });
 });
