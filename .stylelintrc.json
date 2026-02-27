@@ -17,9 +17,7 @@
     "selector-id-pattern": ["^([a-z][a-z0-9]*)(-[a-z0-9]+)*$", { "message": "Expected id \"{{selector}}\" to be kebab-case" }],
     "selector-class-pattern": ["^([a-z][a-z0-9]*)(-[a-z0-9]+)*$", { "message": "Expected class \"{{selector}}\" to be kebab-case" }],
     "declaration-block-no-redundant-longhand-properties": null,
-    "declaration-empty-line-before": null,
     "length-zero-no-unit": null,
-    "declaration-block-single-line-max-declarations": null,
-    "rule-empty-line-before": null
+    "declaration-block-single-line-max-declarations": null
   }
 }
