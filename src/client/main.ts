@@ -83,7 +83,21 @@ if ('serviceWorker' in navigator) {
 
 // ─── UI Components ────────────────────────────────────────────────────
 
-const conversation = new Conversation();
+// ─── Multi-Session State ──────────────────────────────────────────────
+
+interface ChatSession {
+  slotId: string;
+  cwd: string;
+  client: AcpClient;
+  conversation: Conversation;
+}
+
+const sessions = new Map<string, ChatSession>();
+let activeSessionId: string | null = null;
+
+function getActiveSession(): ChatSession | null {
+  return activeSessionId ? sessions.get(activeSessionId) ?? null : null;
+}
 
 // Mount all timeline components into a single chatContainer.
 // ChatList renders messages, and child components (tool calls, permissions,
@@ -93,12 +107,14 @@ chatContainer.className = 'chat-container chat-messages';
 chatArea.appendChild(chatContainer);
 
 function renderChat(): void {
-  render(
-    h(ChatList, { conversation, scrollContainer: chatArea }),
-    chatContainer,
-  );
+  const session = getActiveSession();
+  if (session) {
+    render(
+      h(ChatList, { conversation: session.conversation, scrollContainer: chatArea }),
+      chatContainer,
+    );
+  }
 }
-renderChat();
 
 // Mount Preact sessions modal on body
 const sessionsModalContainer = document.createElement('div');
@@ -109,23 +125,30 @@ render(h(SessionsModal, {}), sessionsModalContainer);
 let terminalWsUrl = '';
 function renderTerminal(): void {
   render(
-    h(TerminalPanel, { wsUrl: terminalWsUrl, visible: activeTab === 'terminal' }),
+    h(TerminalPanel, {
+      wsUrl: terminalWsUrl,
+      visible: activeTab === 'terminal',
+      onStartChatHere: handleStartChatHere,
+    }),
     terminalArea,
   );
 }
 
 /** Clear all conversation state when session changes. */
 function clearConversation(): void {
-  conversation.clear();
-  cancelAllPermissions(conversation);
+  const session = getActiveSession();
+  if (session) {
+    session.conversation.clear();
+    cancelAllPermissions(session.conversation);
+  }
 }
 
 // ─── WebSocket / ACP Client ──────────────────────────────────────────
 
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 
-let client: AcpClient | null = null;
-let clientCwd: string = '';
+let sessionToken: string = '';
+let serverCwd: string = '';
 
 function updateConnectionStatus(state: ConnectionState): void {
   const el = document.getElementById('connection-status')!;
@@ -140,28 +163,37 @@ function updateConnectionStatus(state: ConnectionState): void {
         : 'disconnected'
   }`;
 
+  const session = getActiveSession();
   sendBtn.disabled = state !== 'ready';
   sendBtn.hidden = state === 'prompting';
   cancelBtn.hidden = state !== 'prompting';
 
-  conversation.isPrompting = state === 'prompting';
-  conversation.notify();
+  if (session) {
+    session.conversation.isPrompting = state === 'prompting';
+    session.conversation.notify();
+  }
 }
 
-async function initializeClient() {
-  const tokenResponse = await fetch('/api/token');
-  const { token, cwd } = await tokenResponse.json();
-  clientCwd = cwd;
-
-  const wsUrl = `${wsProtocol}//${location.host}/ws?token=${encodeURIComponent(token)}`;
-  terminalWsUrl = `${wsProtocol}//${location.host}/ws/terminal?token=${encodeURIComponent(token)}`;
-  renderTerminal();
+/** Create a new AcpClient connected to a specific session slot. */
+function createClientForSlot(slotId: string, cwd: string): AcpClient {
+  const wsUrl = `${wsProtocol}//${location.host}/ws?token=${encodeURIComponent(sessionToken)}&slotId=${encodeURIComponent(slotId)}`;
 
   return new AcpClient({
     wsUrl,
     cwd,
-    onStateChange: (state) => updateConnectionStatus(state),
-    onSessionUpdate: (update) => conversation.handleSessionUpdate(update),
+    onStateChange: (state) => {
+      // Only update UI status if this is the active session
+      if (activeSessionId === slotId) {
+        updateConnectionStatus(state);
+      }
+    },
+    onSessionUpdate: (update) => {
+      const s = sessions.get(slotId);
+      if (s) {
+        s.conversation.handleSessionUpdate(update);
+        if (activeSessionId === slotId) renderChat();
+      }
+    },
     onModelsAvailable: (models, currentModelId) => {
       setAvailableModels(models);
       if (currentModelId) {
@@ -170,6 +202,8 @@ async function initializeClient() {
       }
     },
     onPermissionRequest: (request, respond) => {
+      const s = sessions.get(slotId);
+      if (!s) return;
       const autoApproveId = yoloMode
         ? request.options.find(
             (o) => o.kind === 'allow_once' || o.kind === 'allow_always',
@@ -177,7 +211,7 @@ async function initializeClient() {
         : undefined;
 
       showPermissionRequest(
-        conversation,
+        s.conversation,
         request.id,
         request.toolCall.toolCallId,
         request.toolCall.title ?? 'Unknown action',
@@ -186,15 +220,120 @@ async function initializeClient() {
         autoApproveId,
       );
     },
-    onError: (error) => console.error('ACP error:', error),
+    onError: (error) => console.error(`ACP error (session ${slotId}):`, error),
   });
+}
+
+/** Create a new session slot on the server and connect a client to it. */
+async function createSession(cwd: string): Promise<ChatSession> {
+  const res = await fetch('/api/sessions/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cwd }),
+  });
+  const { slotId, cwd: resolvedCwd } = await res.json();
+
+  const client = createClientForSlot(slotId, resolvedCwd);
+  const conversation = new Conversation();
+  const session: ChatSession = { slotId, cwd: resolvedCwd, client, conversation };
+  sessions.set(slotId, session);
+
+  client.connect().catch(console.error);
+  return session;
+}
+
+/** Switch the active chat to a different session. */
+function switchSession(slotId: string): void {
+  const session = sessions.get(slotId);
+  if (!session) return;
+
+  activeSessionId = slotId;
+  renderChat();
+  renderSessionIndicator();
+
+  // Update connection status for the new active session
+  updateConnectionStatus(session.client.connectionState);
+}
+
+/** Render the active session indicator in the header. */
+function renderSessionIndicator(): void {
+  const session = getActiveSession();
+  let indicator = document.getElementById('session-indicator');
+  if (!indicator) {
+    indicator = document.createElement('span');
+    indicator.id = 'session-indicator';
+    indicator.className = 'session-indicator';
+    indicator.addEventListener('click', () => showActiveSessionsModal());
+    document.getElementById('header')!.insertBefore(
+      indicator,
+      document.getElementById('connection-status'),
+    );
+  }
+  if (session) {
+    const folderName = session.cwd.split('/').pop() || session.cwd;
+    indicator.textContent = `📁 ${folderName}`;
+    indicator.title = session.cwd;
+  }
+}
+
+/** Show the active sessions modal for switching. */
+async function showActiveSessionsModal(): Promise<void> {
+  const res = await fetch('/api/sessions/active');
+  const { sessions: activeSlots } = await res.json() as { sessions: { slotId: string; cwd: string; connected: boolean }[] };
+
+  openSessionsModal(
+    activeSlots.map(s => ({
+      id: s.slotId,
+      summary: s.cwd.split('/').pop() || s.cwd,
+      branch: s.cwd,
+      updatedAt: new Date().toISOString(),
+    })),
+    true,
+    (slotId) => switchSession(slotId),
+    async () => {
+      const session = await createSession(serverCwd);
+      switchSession(session.slotId);
+    },
+  );
+}
+
+/** Handle "Start Chat Here" from terminal. */
+async function handleStartChatHere(): Promise<void> {
+  try {
+    const res = await fetch('/api/terminal/cwd');
+    const { cwd } = await res.json();
+    const session = await createSession(cwd);
+    switchSession(session.slotId);
+    switchTab('chat');
+    session.conversation.addSystemMessage(`Session started in ${cwd}`);
+  } catch (err) {
+    console.error('Failed to start chat:', err);
+  }
+}
+
+async function initializeClient() {
+  const tokenResponse = await fetch('/api/token');
+  const { token, cwd } = await tokenResponse.json();
+  sessionToken = token;
+  serverCwd = cwd;
+
+  terminalWsUrl = `${wsProtocol}//${location.host}/ws/terminal?token=${encodeURIComponent(token)}`;
+  renderTerminal();
+
+  // Create the initial default session
+  const session = await createSession(cwd);
+  switchSession(session.slotId);
+  return session.client;
 }
 
 // ─── Input Handling ───────────────────────────────────────────────────
 
 sendBtn.addEventListener('click', async () => {
   const text = promptInput.value.trim();
-  if (!text || !client) return;
+  const session = getActiveSession();
+  if (!text || !session) return;
+
+  const { client, conversation } = session;
 
   promptInput.value = '';
   promptInput.style.height = 'auto';
@@ -264,12 +403,15 @@ sendBtn.addEventListener('click', async () => {
 });
 
 cancelBtn.addEventListener('click', () => {
-  client?.cancel();
-  cancelAllPermissions(conversation);
+  const session = getActiveSession();
+  if (session) {
+    session.client.cancel();
+    cancelAllPermissions(session.conversation);
+  }
   // Stop autopilot auto-continue loop by switching back to chat mode
   if (currentMode === 'autopilot') {
     applyMode('chat');
-    conversation.addSystemMessage('Autopilot cancelled');
+    getActiveSession()?.conversation.addSystemMessage('Autopilot cancelled');
   }
 });
 
@@ -399,16 +541,17 @@ function acceptCompletion(item: PaletteItem): void {
 
 /** Handle a client-side command. Returns a remaining prompt to send, or undefined. */
 function handleClientCommand(command: string, arg: string): string | undefined {
+  const session = getActiveSession();
   switch (command) {
     case '/theme':
       applyTheme(arg || 'auto');
-      conversation.addSystemMessage(`Theme set to ${arg || 'auto'}`);
+      session?.conversation.addSystemMessage(`Theme set to ${arg || 'auto'}`);
       return undefined;
     case '/yolo': {
       const on = arg === '' || arg === 'on';
       yoloMode = on;
       localStorage.setItem('uplink-yolo', String(yoloMode));
-      conversation.addSystemMessage(`Auto-approve ${yoloMode ? 'enabled' : 'disabled'}`);
+      session?.conversation.addSystemMessage(`Auto-approve ${yoloMode ? 'enabled' : 'disabled'}`);
       return undefined;
     }
     case '/session':
@@ -416,85 +559,53 @@ function handleClientCommand(command: string, arg: string): string | undefined {
       return undefined;
     case '/agent':
       applyMode('chat');
-      conversation.addSystemMessage('Switched to agent mode');
+      session?.conversation.addSystemMessage('Switched to agent mode');
       return arg || undefined;
     case '/plan':
       applyMode('plan');
-      conversation.addSystemMessage('Switched to plan mode');
+      session?.conversation.addSystemMessage('Switched to plan mode');
       return arg || undefined;
     case '/autopilot':
       applyMode('autopilot');
-      conversation.addSystemMessage('Switched to autopilot mode');
+      session?.conversation.addSystemMessage('Switched to autopilot mode');
       return arg || undefined;
   }
   return undefined;
 }
 
 async function handleSessionCommand(arg: string): Promise<void> {
-  if (!client || !clientCwd) return;
+  const session = getActiveSession();
+  if (!session) return;
 
   if (arg === 'create' || arg === 'new') {
-    clearConversation();
-    localStorage.removeItem('uplink-resume-session');
-    client.disconnect();
-    try {
-      client = await initializeClient();
-      client.connect().catch(console.error);
-    } catch (err) {
-      console.error('Failed to create new session:', err);
-    }
+    const newSession = await createSession(serverCwd);
+    switchSession(newSession.slotId);
     return;
   }
 
   if (arg.startsWith('rename ')) {
     const name = arg.slice(7).trim();
-    if (!name || !client.currentSessionId) return;
+    if (!name || !session.client.currentSessionId) return;
     try {
-      await client.sendRawRequest('uplink/rename_session', {
-        sessionId: client.currentSessionId,
+      await session.client.sendRawRequest('uplink/rename_session', {
+        sessionId: session.client.currentSessionId,
         summary: name,
       });
-      conversation.addSystemMessage(`Session renamed to "${name}"`);
+      session.conversation.addSystemMessage(`Session renamed to "${name}"`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      conversation.addSystemMessage(`Failed to rename: ${msg}`);
+      session.conversation.addSystemMessage(`Failed to rename: ${msg}`);
     }
     return;
   }
 
   if (arg === 'list' || arg === '') {
-    const sessions = await fetchSessions(clientCwd);
-    openSessionsModal(
-      sessions,
-      client.supportsLoadSession,
-      async (sessionId) => {
-        clearConversation();
-        try {
-          await client!.loadSession(sessionId);
-        } catch (err) {
-          console.error('Failed to load session:', err);
-        }
-      },
-      async () => {
-        clearConversation();
-        localStorage.removeItem('uplink-resume-session');
-        client!.disconnect();
-        try {
-          client = await initializeClient();
-          client.connect().catch(console.error);
-        } catch (err) {
-          console.error('Failed to create new session:', err);
-        }
-      },
-    );
+    showActiveSessionsModal();
   }
 }
 
 // ─── Connect ──────────────────────────────────────────────────────────
 
-initializeClient().then((c) => {
-  client = c;
-  client.connect();
-}).catch((err) => {
+initializeClient().catch((err) => {
   console.error('Failed to initialize client:', err);
 });
