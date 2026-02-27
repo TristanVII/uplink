@@ -217,6 +217,7 @@ body, html {
 #chat-area {
   flex-grow: 1;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: var(--space-4);
   display: flex;
   flex-direction: column;
