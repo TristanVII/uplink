@@ -22,6 +22,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.server.json && vite build",
+    "postinstall": "node -e \"const fs=require('fs'),p=require('path'),d=p.join('node_modules','node-pty','prebuilds');if(fs.existsSync(d)){const walk=dir=>{for(const f of fs.readdirSync(dir,{withFileTypes:true})){const fp=p.join(dir,f.name);f.isDirectory()?walk(fp):f.name==='spawn-helper'&&fs.chmodSync(fp,0o755)}};walk(d)}\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
