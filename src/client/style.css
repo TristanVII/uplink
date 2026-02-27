@@ -350,7 +350,7 @@ pre code {
   top: -8px;
   right: 12px;
   background-color: var(--bg-primary);
-  padding: 0 6px;
+  padding: 0 var(--space-1);
   font-size: var(--text-xs);
   color: var(--text-secondary);
   line-height: 1;
