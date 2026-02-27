@@ -25,7 +25,7 @@ export function getTunnelInfo(tunnelName: string): TunnelInfo {
     const output = execFileSync('devtunnel', ['show', tunnelName, '--json'], {
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 10_000,
+      timeout: 30_000,
     });
     const data = JSON.parse(output);
     const port = data?.tunnel?.ports?.[0]?.portNumber as number | undefined;
@@ -38,11 +38,11 @@ export function getTunnelInfo(tunnelName: string): TunnelInfo {
 export function createTunnel(tunnelName: string, port: number): void {
   execFileSync('devtunnel', ['create', tunnelName], {
     stdio: 'ignore',
-    timeout: 10_000,
+    timeout: 30_000,
   });
   execFileSync('devtunnel', ['port', 'create', tunnelName, '-p', String(port)], {
     stdio: 'ignore',
-    timeout: 10_000,
+    timeout: 30_000,
   });
 }
 
@@ -50,14 +50,14 @@ export function updateTunnelPort(tunnelName: string, oldPort: number, newPort: n
   try {
     execFileSync('devtunnel', ['port', 'delete', tunnelName, '-p', String(oldPort)], {
       stdio: 'ignore',
-      timeout: 10_000,
+      timeout: 30_000,
     });
   } catch {
     // Port may not exist — ignore
   }
   execFileSync('devtunnel', ['port', 'create', tunnelName, '-p', String(newPort)], {
     stdio: 'ignore',
-    timeout: 10_000,
+    timeout: 30_000,
   });
 }
 export function getDevTunnelNotFoundMessage(): string {
