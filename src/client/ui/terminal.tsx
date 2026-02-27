@@ -109,9 +109,44 @@ export function TerminalPanel({ wsUrl, visible }: TerminalPanelProps) {
       }
     });
 
-    ws.addEventListener('close', () => {
+    ws.addEventListener('close', (event) => {
       setConnected(false);
       term.write('\r\n\x1b[33m[Terminal disconnected]\x1b[0m\r\n');
+
+      // Auto-reconnect unless it was a clean close (user navigated away or component unmounted)
+      if (event.code !== 1000 && wsUrl) {
+        term.write('\x1b[33m[Reconnecting...]\x1b[0m\r\n');
+        setTimeout(() => {
+          if (!termRef.current) return;
+          const newWs = new WebSocket(wsUrl);
+          wsRef.current = newWs;
+
+          newWs.addEventListener('open', () => {
+            setConnected(true);
+            term.write('\x1b[32m[Reconnected]\x1b[0m\r\n');
+            try { fit.fit(); } catch { /* noop */ }
+            newWs.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+          });
+
+          newWs.addEventListener('message', (ev) => {
+            const msg = JSON.parse(ev.data as string);
+            if (msg.type === 'data') {
+              term.write(msg.data);
+            }
+          });
+
+          newWs.addEventListener('close', () => {
+            setConnected(false);
+            term.write('\r\n\x1b[33m[Terminal disconnected]\x1b[0m\r\n');
+          });
+
+          term.onData((data) => {
+            if (newWs.readyState === WebSocket.OPEN) {
+              newWs.send(JSON.stringify({ type: 'data', data }));
+            }
+          });
+        }, 2000);
+      }
     });
 
     // Terminal input -> WebSocket

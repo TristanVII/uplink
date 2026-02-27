@@ -340,6 +340,13 @@ export function startServer(options: ServerOptions): ServerResult {
     }
     activeTerminal = terminal;
 
+    // Keepalive ping every 15s to prevent idle timeout (mobile, tunnels)
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+      }
+    }, 15_000);
+
     terminal.onData((data) => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'data', data }));
@@ -372,6 +379,7 @@ export function startServer(options: ServerOptions): ServerResult {
 
     ws.on('close', () => {
       console.log('Terminal client disconnected');
+      clearInterval(pingInterval);
       terminal.kill();
       if (activeTerminal === terminal) {
         activeTerminal = null;
