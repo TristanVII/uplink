@@ -266,18 +266,22 @@ export class AcpClient {
 
     // Try to resume a saved session (e.g., after page reload or model change)
     const resumeId = localStorage.getItem('uplink-resume-session');
-    if (resumeId && this.agentCapabilities.loadSession) {
-      try {
-        await this.sendRequest("session/load", {
-          sessionId: resumeId,
-          cwd: this.options.cwd,
-          mcpServers: [],
-        });
-        this.sessionId = resumeId;
-        return;
-      } catch {
-        // Resume failed — fall through to new session
-        localStorage.removeItem('uplink-resume-session');
+    if (resumeId) {
+      // Always clear the resume key — it's single-use
+      localStorage.removeItem('uplink-resume-session');
+
+      if (this.agentCapabilities.loadSession) {
+        try {
+          await this.sendRequest("session/load", {
+            sessionId: resumeId,
+            cwd: this.options.cwd,
+            mcpServers: [],
+          });
+          this.sessionId = resumeId;
+          return;
+        } catch {
+          // Resume failed — fall through to new session
+        }
       }
     }
 
