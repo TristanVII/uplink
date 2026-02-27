@@ -301,6 +301,13 @@ promptInput.addEventListener('input', () => {
   const scrollH = promptInput.scrollHeight;
   promptInput.style.height = Math.min(scrollH, maxH) + 'px';
   promptInput.style.overflowY = scrollH > maxH ? 'auto' : 'hidden';
+
+  // Dynamic shell-input border when text starts with !
+  if (promptInput.value.startsWith('!')) {
+    document.documentElement.setAttribute('data-mode', 'shell-input');
+  } else {
+    document.documentElement.setAttribute('data-mode', currentMode);
+  }
 });
 
 // ─── Theme Toggle ─────────────────────────────────────────────────────

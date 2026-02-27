@@ -517,3 +517,54 @@ test('thinking content blocks render as collapsible reasoning', async ({ page })
   await expect(thinking).toContainText('consider the approach');
   await expect(thinking).toContainText('database schema');
 });
+
+test('typing ! sets shell-input border, removing it reverts', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  const input = page.locator('#prompt-input');
+  const html = page.locator('html');
+
+  // Start in chat mode
+  await expect(html).toHaveAttribute('data-mode', 'chat');
+
+  // Type ! to trigger shell input mode
+  await input.fill('!');
+  await expect(html).toHaveAttribute('data-mode', 'shell-input');
+
+  // Verify border color changed from default (not the normal --border color)
+  const shellBorder = await input.evaluate(
+    (el) => getComputedStyle(el).borderColor,
+  );
+  const defaultBorder = await input.evaluate(
+    (el) => getComputedStyle(el).getPropertyValue('--border').trim(),
+  );
+  // Shell-input border should NOT be the default border color
+  expect(shellBorder).not.toBe(defaultBorder);
+
+  // Clear the ! — should revert to chat
+  await input.fill('');
+  await expect(html).toHaveAttribute('data-mode', 'chat');
+});
+
+test('shell-input border reverts to plan mode if plan was active', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  const input = page.locator('#prompt-input');
+  const html = page.locator('html');
+
+  // Switch to plan mode first
+  await page.locator('#menu-toggle').click();
+  await page.locator('#mode-select').selectOption('plan');
+  await page.keyboard.press('Escape');
+  await expect(html).toHaveAttribute('data-mode', 'plan');
+
+  // Type ! — should show shell-input
+  await input.fill('!echo hello');
+  await expect(html).toHaveAttribute('data-mode', 'shell-input');
+
+  // Delete the ! — should revert to plan, not chat
+  await input.fill('echo hello');
+  await expect(html).toHaveAttribute('data-mode', 'plan');
+});

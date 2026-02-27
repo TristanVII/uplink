@@ -23,6 +23,7 @@ html.dark {
   --warning-glow-soft: rgba(249, 226, 175, 0.15);
   --warning-glow: rgba(249, 226, 175, 0.3);
   --info: #89b4fa;
+  --peach: #fab387;
   --user-msg-bg: #45475a;
   --user-msg-text: #cdd6f4;
   color-scheme: dark;
@@ -45,6 +46,7 @@ html.light {
   --warning-glow-soft: rgba(223, 142, 29, 0.15);
   --warning-glow: rgba(223, 142, 29, 0.3);
   --info: #1e66f5;
+  --peach: #fe640b;
   --user-msg-bg: #ccd0da;
   --user-msg-text: #4c4f69;
   color-scheme: light;
@@ -501,6 +503,13 @@ pre code {
 [data-mode="autopilot"] #prompt-input:focus {
   border-color: var(--success);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 25%, transparent);
+}
+[data-mode="shell-input"] #prompt-input {
+  border-color: var(--peach);
+}
+[data-mode="shell-input"] #prompt-input:focus {
+  border-color: var(--peach);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--peach) 25%, transparent);
 }
 
 button {
