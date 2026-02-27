@@ -284,6 +284,8 @@ function updateBorderPreview(): void {
     const cmd = parts[0]?.toLowerCase();
     if (cmd === 'plan' || cmd === 'autopilot') {
       document.documentElement.setAttribute('data-mode', cmd);
+    } else if (cmd === 'agent') {
+      document.documentElement.setAttribute('data-mode', 'chat');
     } else {
       document.documentElement.setAttribute('data-mode', currentMode);
     }

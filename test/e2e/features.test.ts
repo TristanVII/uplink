@@ -716,6 +716,23 @@ test('typing /autopilot previews autopilot border', async ({ page }) => {
   await expect(html).toHaveAttribute('data-mode', 'chat');
 });
 
+test('typing /agent while in plan mode previews chat border', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  const input = page.locator('#prompt-input');
+  const html = page.locator('html');
+
+  // Enter plan mode
+  await input.fill('/plan');
+  await page.locator('#send-btn').click();
+  await expect(html).toHaveAttribute('data-mode', 'plan');
+
+  // Type /agent — should preview chat (agent = default chat mode)
+  await input.fill('/agent');
+  await expect(html).toHaveAttribute('data-mode', 'chat');
+});
+
 test('clicking /plan in palette previews plan border immediately', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
