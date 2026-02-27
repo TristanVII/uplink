@@ -110,6 +110,7 @@ function updateConnectionStatus(state: ConnectionState): void {
   }`;
 
   sendBtn.disabled = state !== 'ready';
+  sendBtn.hidden = state === 'prompting';
   cancelBtn.hidden = state !== 'prompting';
 
   conversation.isPrompting = state === 'prompting';
