@@ -363,6 +363,11 @@ pre code {
   display: none;
 }
 
+#prompt-input::placeholder {
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
 #prompt-input:focus {
   outline: none;
   border-color: var(--accent);
