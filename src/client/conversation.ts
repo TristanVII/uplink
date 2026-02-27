@@ -109,13 +109,22 @@ export class Conversation {
       case "tool_call_update": {
         const existing = this.toolCalls.get(update.toolCallId);
         if (existing) {
+          // Merge content: append new items rather than replacing
+          const mergedContent =
+            update.content !== undefined && update.content.length > 0
+              ? [...existing.content, ...update.content]
+              : existing.content;
+          const mergedLocations =
+            update.locations !== undefined && update.locations.length > 0
+              ? [...existing.locations, ...update.locations]
+              : existing.locations;
           // Create a new object so Preact detects the change via reference equality
           this.toolCalls.set(update.toolCallId, {
             ...existing,
             ...(update.title !== undefined && { title: update.title }),
             ...(update.status !== undefined && { status: update.status }),
-            ...(update.content !== undefined && { content: update.content }),
-            ...(update.locations !== undefined && { locations: update.locations }),
+            content: mergedContent,
+            locations: mergedLocations,
           });
         }
         break;

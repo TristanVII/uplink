@@ -446,3 +446,27 @@ test('tool call and permission icons have consistent left alignment', async ({ p
   // Icons should start at the same offset from their card's left edge
   expect(toolOffset).toBeCloseTo(permOffset, 0);
 });
+
+test('failed tool call shows status message when expanded', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  // Trigger failed tool call
+  await page.locator('#prompt-input').fill('fail');
+  await page.locator('#send-btn').click();
+
+  const toolCall = page.locator('.tool-call').first();
+  await expect(toolCall).toBeVisible({ timeout: 10000 });
+
+  // Should show failed status
+  await expect(toolCall.locator('.status')).toContainText('failed');
+
+  // Click to expand
+  await toolCall.locator('.tool-call-header').click();
+
+  // Body should be visible and contain some feedback (not empty)
+  const body = toolCall.locator('.tool-call-body');
+  await expect(body).toBeVisible();
+  const bodyText = await body.textContent();
+  expect(bodyText!.trim().length).toBeGreaterThan(0);
+});

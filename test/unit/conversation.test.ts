@@ -141,6 +141,53 @@ describe('Conversation', () => {
       expect(conversation.toolCalls.get('call_1')?.content).toEqual(content);
     });
 
+    it('tool_call_update appends content rather than replacing', () => {
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'call_1',
+        title: 'Run command',
+        kind: 'execute',
+        status: 'in_progress',
+        content: [{ type: 'content', content: { type: 'text', text: 'Running...' } }]
+      });
+
+      // Second update appends more content
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'call_1',
+        content: [{ type: 'content', content: { type: 'text', text: 'Output line 1' } }]
+      });
+
+      const tc = conversation.toolCalls.get('call_1');
+      expect(tc?.content).toHaveLength(2);
+      expect(tc?.content[0]).toEqual({ type: 'content', content: { type: 'text', text: 'Running...' } });
+      expect(tc?.content[1]).toEqual({ type: 'content', content: { type: 'text', text: 'Output line 1' } });
+    });
+
+    it('tool_call_update with empty content does not erase existing content', () => {
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'call_1',
+        title: 'Run command',
+        kind: 'execute',
+        status: 'in_progress',
+        content: [{ type: 'content', content: { type: 'text', text: 'Output here' } }]
+      });
+
+      // Update with status change and empty content array — should NOT lose content
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'call_1',
+        status: 'failed',
+        content: []
+      });
+
+      const tc = conversation.toolCalls.get('call_1');
+      expect(tc?.status).toBe('failed');
+      expect(tc?.content).toHaveLength(1);
+      expect(tc?.content[0]).toEqual({ type: 'content', content: { type: 'text', text: 'Output here' } });
+    });
+
     it('Multiple tool calls tracked by different toolCallIds', () => {
       conversation.handleSessionUpdate({
         sessionUpdate: 'tool_call',

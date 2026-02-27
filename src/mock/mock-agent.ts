@@ -163,6 +163,37 @@ async function scenarioToolCall(requestId: number | string): Promise<void> {
   );
 }
 
+async function scenarioFailedToolCall(requestId: number | string): Promise<void> {
+  sendPromptUpdate(requestId, {
+    sessionUpdate: "tool_call",
+    toolCallId: "tc-fail",
+    title: "Run powershell command",
+    kind: "execute",
+    status: "pending",
+  });
+  await delay(50);
+  sendPromptUpdate(requestId, {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tc-fail",
+    status: "in_progress",
+    content: [
+      { type: "content", content: { type: "text", text: "PS> Get-Item missing.txt" } },
+    ],
+  });
+  await delay(50);
+  sendPromptUpdate(requestId, {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "tc-fail",
+    status: "failed",
+    content: [],
+  });
+  sendPromptChunk(requestId, "The command failed.");
+  respondToPrompt(
+    requestId,
+    { stopReason: "end_turn" } satisfies SessionPromptResult,
+  );
+}
+
 async function scenarioPermission(requestId: number | string): Promise<void> {
   sendPromptUpdate(requestId, {
     sessionUpdate: "tool_call",
@@ -352,6 +383,8 @@ async function handleRequest(msg: JsonRpcRequest): Promise<void> {
 
       if (text.startsWith("tool")) {
         await scenarioToolCall(msg.id);
+      } else if (text.startsWith("fail")) {
+        await scenarioFailedToolCall(msg.id);
       } else if (text.startsWith("permission")) {
         await scenarioPermission(msg.id);
       } else if (text.startsWith("stream")) {

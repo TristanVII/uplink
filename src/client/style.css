@@ -594,6 +594,21 @@ button:disabled {
   overflow-x: auto;
 }
 
+.tool-call-empty {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.tool-call-locations {
+  margin-top: 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.tool-call-location::before {
+  content: "→ ";
+}
+
 /* Thinking / Reasoning Tool Calls */
 .tool-call-thinking {
   border-left-color: var(--accent);

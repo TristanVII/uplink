@@ -96,7 +96,18 @@ export function ToolCallCard({ tc }: { tc: TrackedToolCall }) {
         <span class={`status ${tc.status}`}>{tc.status}</span>
       </div>
       <div class="tool-call-body" hidden={collapsed}>
-        {tc.content.length > 0 && <ContentBlock content={tc.content} />}
+        {tc.content.length > 0
+          ? <ContentBlock content={tc.content} />
+          : <div class="tool-call-empty">No output</div>}
+        {tc.locations.length > 0 && (
+          <div class="tool-call-locations">
+            {tc.locations.map((loc, i) => (
+              <div key={i} class="tool-call-location">
+                {loc.path}{loc.line != null ? `:${loc.line}` : ''}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
