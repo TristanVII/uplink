@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { startServer } from '../src/server/index.js';
 import { hashCwd, getTunnelInfo, createTunnel, updateTunnelPort, startTunnel, stopTunnel, type TunnelResult } from '../src/server/tunnel.js';
+import { resolvePort } from '../src/server/resolve-port.js';
+import { isPortAvailable } from '../src/server/is-port-available.js';
 
 const require = createRequire(import.meta.url);
 
@@ -74,53 +76,18 @@ async function listenOrThrow(server: ReturnType<typeof startServer>['server'], d
   });
 }
 
-// Probe whether a port is available without creating the full server stack
-async function isPortAvailable(port: number): Promise<boolean> {
-  const { createServer: createNetServer } = await import('node:net');
-  return new Promise((resolvePromise) => {
-    const probe = createNetServer();
-    probe.once('error', () => resolvePromise(false));
-    probe.listen(port, () => {
-      probe.close(() => resolvePromise(true));
-    });
-  });
-}
-
-function resolvePort(): { port: number; tunnelName?: string } {
-  // --tunnel-id: raw primitive, no smart port
-  if (opts.tunnelId) {
-    return { port: explicitPort ?? 0 };
-  }
-
-  // --tunnel without --tunnel-id: auto-persistent
-  if (useTunnel && !opts.tunnelId) {
-    const resolvedCwd = resolve(opts.cwd);
-    const tunnelName = hashCwd(resolvedCwd);
-
-    if (explicitPort != null) {
-      return { port: explicitPort, tunnelName };
-    }
-
-    // Try to reuse the port from the existing tunnel
-    const info = getTunnelInfo(tunnelName);
-    if (info.exists && info.port) {
-      return { port: info.port, tunnelName };
-    }
-
-    return { port: 0, tunnelName };
-  }
-
-  // Local only
-  return { port: explicitPort ?? 0 };
-}
-
 async function main() {
   console.log('🛰 Copilot Uplink starting...');
   console.log();
 
   const staticDir = resolveStaticDir();
   const cwd = resolve(opts.cwd);
-  const { port: desiredPort, tunnelName } = resolvePort();
+  const { port: desiredPort, tunnelName } = resolvePort({
+    cwd,
+    explicitPort,
+    tunnel: useTunnel,
+    tunnelId: opts.tunnelId,
+  });
 
   // Only do EADDRINUSE fallback in auto-tunnel mode (saved port might be stale).
   // For explicit --port or non-tunnel, let EADDRINUSE crash normally.
