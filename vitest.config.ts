@@ -8,5 +8,8 @@ export default defineConfig({
     exclude: ["test/e2e/**"],
     testTimeout: 15000,
     passWithNoTests: true,
+    environmentMatchGlobs: [
+      ["test/component/**", "jsdom"],
+    ],
   },
 });
