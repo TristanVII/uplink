@@ -5,33 +5,42 @@ The interactive terminal adds a full PTY-backed shell to Copilot Uplink, accessi
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  Browser (PWA)                                      │
-│  ┌──────────┐  ┌──────────────────────────────────┐ │
-│  │ Chat Tab │  │ Terminal Tab                     │ │
-│  │ (ACP)    │  │ xterm.js ↔ WebSocket            │ │
-│  └────┬─────┘  └──────────────┬───────────────────┘ │
-│       │                       │                     │
-└───────┼───────────────────────┼─────────────────────┘
-        │                       │
-   /ws (ACP)            /ws/terminal
-        │                       │
-┌───────┼───────────────────────┼─────────────────────┐
-│  Bridge Server (Node.js)      │                     │
-│       │                       │                     │
-│  ┌────┴─────┐          ┌──────┴───────┐             │
-│  │ Bridge   │          │ Terminal     │             │
-│  │ (stdio)  │          │ Session     │             │
-│  └────┬─────┘          │ (node-pty)  │             │
-│       │                └──────┬───────┘             │
-│  copilot --acp          /bin/bash (or $SHELL)       │
-└─────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│  Browser (PWA)                                                │
+│                                                               │
+│  ┌─ Tab Bar ────────────────────────────────────────────────┐ │
+│  │ [Terminal]  [● 📁 myapp ✕]  [◉ 📁 api ✕]  [○ 📁 lib ✕] │ │
+│  └──────────────────────────────────────────────────────────┘ │
+│                                                               │
+│  ┌──────────────┐  ┌───────────────────────────────────────┐  │
+│  │ Terminal Tab  │  │ Chat Panel (per session)              │  │
+│  │ xterm.js     │  │ AcpClient ↔ Conversation ↔ ChatList  │  │
+│  │ [Start Chat] │  │ Input area + command palette          │  │
+│  └──────┬───────┘  └──────────────┬────────────────────────┘  │
+│         │                         │                           │
+└─────────┼─────────────────────────┼───────────────────────────┘
+          │                         │
+     /ws/terminal          /ws?slotId=<id>
+          │                         │
+┌─────────┼─────────────────────────┼───────────────────────────┐
+│  Bridge Server (Node.js)          │                           │
+│         │              ┌──────────┴──────────┐                │
+│  ┌──────┴───────┐      │ SessionSlot Map     │                │
+│  │ Terminal     │      │ ┌─────────────────┐ │                │
+│  │ Session      │      │ │ slot-a: Bridge  │ │                │
+│  │ (node-pty)   │      │ │ slot-b: Bridge  │ │                │
+│  └──────┬───────┘      │ │ slot-c: Bridge  │ │                │
+│         │              │ └────────┬────────┘ │                │
+│  /bin/zsh ($SHELL)     └──────────┼──────────┘                │
+│                           copilot --acp --stdio (per slot)    │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-The chat and terminal are fully independent:
+The terminal and chat sessions are fully independent:
 
-- **Chat** uses `/ws` and speaks JSON-RPC (ACP protocol) to the Copilot CLI subprocess
-- **Terminal** uses `/ws/terminal` and streams raw PTY data via JSON messages to a shell process
+- **Terminal** uses `/ws/terminal` and streams raw PTY data via JSON messages to a single shared shell process
+- **Chat sessions** (up to 4) each use `/ws?slotId=<id>` and speak JSON-RPC (ACP protocol) to their own Copilot CLI subprocess, scoped to a specific working directory
+- On startup, only the terminal tab is shown — no chat sessions are created until the user requests one
 
 Both WebSocket endpoints share the same HTTP server and devtunnel URL. A manual `upgrade` handler routes connections by pathname.
 
@@ -55,9 +64,17 @@ Both WebSocket endpoints share the same HTTP server and devtunnel URL. A manual 
 
 **`src/server/index.ts`** — WebSocket keepalive
 
-- Pings the terminal WebSocket every 15 seconds to prevent idle timeout
+- Pings **both** terminal and chat WebSockets every 15 seconds to prevent idle timeout
 - Mobile browsers and tunnel proxies aggressively close idle connections; the ping keeps them alive
-- Ping interval is cleaned up on disconnect
+- Ping intervals are cleaned up on disconnect
+
+**`src/server/index.ts`** — Session slot management
+
+- `SessionSlot` Map holds per-session state: `{ id, cwd, bridge, socket, pendingSessionNewIds }`
+- `createSessionSlot(cwd)` spawns a new Bridge subprocess in the given directory
+- `destroySessionSlot(id)` kills the bridge and closes the WebSocket
+- If a bridge dies, it is automatically **respawned** when a client reconnects to that slot
+- REST endpoints for session lifecycle (see [Server Endpoints](#server-endpoints))
 
 ### Client
 
@@ -70,21 +87,38 @@ Both WebSocket endpoints share the same HTTP server and devtunnel URL. A manual 
 - `ResizeObserver` triggers fit + sends resize to server
 - **Auto-reconnect** — if the WebSocket drops unexpectedly, the client waits 2 seconds then reconnects and spawns a new shell. Status messages (`[Reconnecting...]`, `[Reconnected]`) are shown inline.
 
-**`src/client/main.ts`** — Tab switching
+**`src/client/main.ts`** — Multi-tab session orchestrator
 
-- Tab bar with Chat and Terminal buttons
-- Switching tabs shows/hides the panels and triggers terminal refit
+- Manages a `Map<string, ChatSession>` of up to 4 simultaneous chat sessions
+- Each `ChatSession` has its own `AcpClient`, `Conversation`, and DOM panel
+- `createChatPanel()` — DOM factory that builds a complete chat panel (messages area, input, buttons, command palette) using class-based selectors so multiple instances coexist
+- `switchTab()` — hides all panels, shows the selected one, updates header status
+- `handleStartChatHere()` — fetches terminal cwd via `/api/terminal/cwd`, creates a session scoped to that directory
+- On startup, only the terminal tab is shown — no chat sessions until the user creates one
+
+**Tab status indicators** — each chat tab has a colored dot showing session state:
+
+| Dot | State | Meaning |
+|---|---|---|
+| ⚪ Grey | `ready` | Idle, waiting for input |
+| 🟢 Pulsing green | `prompting` | Actively running a prompt |
+| 🟡 Pulsing yellow | `connecting` / `initializing` | Establishing connection |
+| 🔴 Red | `disconnected` | Connection lost |
+
+Status updates apply to **all** tabs, not just the active one — you can see background sessions working while you're on another tab.
+
 - Terminal WebSocket URL is set after fetching the session token
 
-### Mobile Controls
+### Controls Sidebar
 
-On screens ≤ 600px wide, a sidebar appears on the right side of the terminal with touch-friendly buttons:
+A sidebar appears on the right side of the terminal with action buttons. The "Start Chat Here" button is always visible; other controls appear on mobile (≤ 600px):
 
-| Button | Icon | Action |
-|---|---|---|
-| **Select** | `select_all` / `terminal` | Toggles **select mode** — replaces the canvas with a plain `<pre>` element containing the terminal buffer text. This enables native mobile text selection (long-press → drag handles → copy). Tap again to return to the interactive terminal. |
-| **↑** | `keyboard_arrow_up` | Sends arrow-up to the shell (history previous) |
-| **↓** | `keyboard_arrow_down` | Sends arrow-down to the shell (history next) |
+| Button | Icon | Visibility | Action |
+|---|---|---|---|
+| **Start Chat** | `add_comment` | Always | Creates a new chat session scoped to the terminal's current directory |
+| **Select** | `select_all` / `terminal` | Mobile | Toggles **select mode** — replaces the canvas with a plain `<pre>` element containing the terminal buffer text. This enables native mobile text selection (long-press → drag handles → copy). Tap again to return to the interactive terminal. |
+| **↑** | `keyboard_arrow_up` | Always | Sends arrow-up to the shell (history previous) |
+| **↓** | `keyboard_arrow_down` | Always | Sends arrow-down to the shell (history next) |
 
 **Why select mode?** xterm.js renders to a `<canvas>` element, which does not support native mobile text selection (the long-press → drag handles flow that works on regular DOM text). Select mode works around this by extracting the terminal buffer via xterm's buffer API (`getLine()` / `translateToString()`) and displaying it as selectable plain text.
 
@@ -127,10 +161,11 @@ COPILOT_COMMAND="npx tsx src/mock/mock-agent.ts --acp --stdio" node dist/bin/cli
 
 Open `http://localhost:3000` in a browser. You should see:
 
-- A **tab bar** with "Chat" and "Terminal" tabs
-- Click **Terminal** — a full interactive shell appears
-- Try running commands: `ls`, `pwd`, `top`, `vim` (all interactive)
-- Switch back to **Chat** to talk to the mock agent
+- A **tab bar** with only the "Terminal" tab
+- A full interactive shell in the terminal
+- The **"Start Chat Here" button** in the terminal sidebar
+- Click it — a new chat tab appears scoped to the current directory
+- Switch back to **Terminal** to navigate to another directory and create more tabs
 
 ### 3. Start with the real Copilot CLI
 
@@ -175,13 +210,13 @@ All 164 existing tests continue to pass — the terminal feature is additive and
 
 ### Keepalive
 
-The server sends a WebSocket **ping frame every 15 seconds** on the terminal connection. This prevents:
+The server sends a WebSocket **ping frame every 15 seconds** on **both** terminal and chat connections. This prevents:
 
 - Mobile browsers from closing idle connections (iOS Safari, Android Chrome)
 - Tunnel proxies (devtunnel) from timing out inactive WebSockets
 - Corporate firewalls/NATs from dropping idle TCP connections
 
-### Auto-Reconnect
+### Terminal Auto-Reconnect
 
 If the terminal WebSocket closes unexpectedly (network blip, phone sleep/wake, tunnel restart), the client automatically:
 
@@ -193,22 +228,40 @@ If the terminal WebSocket closes unexpectedly (network blip, phone sleep/wake, t
 
 Clean closes (code 1000, e.g. user navigated away) do **not** trigger reconnect. Note that the previous shell session and its state are lost on reconnect — this is a new PTY process.
 
-## Multi-Directory Sessions
+### Chat Auto-Reconnect
 
-You can create multiple chat sessions, each scoped to a different working directory. The terminal stays shared and independent.
+The `AcpClient` has built-in reconnect with exponential backoff. If a chat WebSocket drops:
+
+1. The tab status dot turns red (disconnected)
+2. The client schedules a reconnect with exponential backoff (starting at 1s, max 30s)
+3. On reconnect, the server **respawns the bridge** if it died (custom close code `4100` distinguishes bridge death from clean closes)
+4. A new `session/new` is created with the same working directory
+5. The tab status dot returns to grey (idle)
+
+The session slot is preserved on the server even when the client disconnects — the bridge stays alive for reconnection. If the bridge itself crashes, it is respawned automatically when the client reconnects.
+
+## Multi-Chat Tabs
+
+You can run up to **4 simultaneous chat sessions**, each scoped to a different working directory. The terminal stays shared and independent.
 
 ### How It Works
 
-1. **Navigate** in the terminal to any project directory (`cd ~/projects/my-app`)
-2. **Tap the green "Start Chat Here" button** (💬 `add_comment` icon) in the terminal sidebar
-3. A new chat session is created, scoped to the terminal's current directory
-4. Copilot in that session sees files in that folder
+1. **Start with the terminal** — on launch, only the Terminal tab is shown
+2. **Navigate** to any project directory (`cd ~/projects/my-app`)
+3. **Tap "Start Chat Here"** (`add_comment` icon) in the terminal sidebar
+4. A new chat tab appears: `● 📁 my-app ✕` — scoped to that directory
+5. **Repeat** for other directories (up to 4 tabs total)
+6. **Close** a chat tab by clicking the `✕` button on its tab
 
-### Switching Sessions
+### Tab Indicators
 
-- **Click the folder name** (📁) in the header to open the session list
-- **`/session list`** in the chat input also opens the session list
-- **`/session new`** creates a new session in the server's default directory
+Each chat tab shows a status dot (see [Tab status indicators](#tab-status-indicators) above) so you can monitor background sessions at a glance.
+
+### Switching Between Tabs
+
+- **Click any tab** in the tab bar to switch
+- The Terminal tab is always available as the first tab
+- Chat tabs show `📁 foldername` with the full path as a tooltip
 
 ### Architecture
 
@@ -245,8 +298,11 @@ These use the original `uplink/shell` JSON-RPC method (30s timeout, non-interact
 
 ## Limitations
 
-- **Single terminal session** — one shell per connection (matches the single-client constraint)
+- **Max 4 chat tabs** — enforced client-side; attempting to create more shows a console warning
+- **Single terminal session** — one shared shell per connection
 - **No session persistence** — terminal state (shell history, running processes) is lost on reconnect; a new shell is spawned
+- **Chat session state on reconnect** — if a bridge dies and is respawned, a new ACP session is created (conversation history in the UI is preserved but the server-side context resets)
 - **Native dependency** — `node-pty` requires build tools at install time
 - **No terminal multiplexing** — one shell, no tabs/splits within the terminal
 - **Select mode is read-only** — you cannot type while in select mode; toggle back to the terminal first
+- **Terminal cwd detection** — uses `lsof` on macOS and `/proc` on Linux; may not work in all environments
