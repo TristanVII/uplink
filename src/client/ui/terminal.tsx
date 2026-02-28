@@ -8,6 +8,7 @@ import '@xterm/xterm/css/xterm.css';
 export interface TerminalPanelProps {
   wsUrl: string;
   visible: boolean;
+  onStartChatHere?: () => void;
 }
 
 const THEME_DARK = {
@@ -64,7 +65,7 @@ function getTheme(): typeof THEME_DARK {
   return document.documentElement.classList.contains('light') ? THEME_LIGHT : THEME_DARK;
 }
 
-export function TerminalPanel({ wsUrl, visible }: TerminalPanelProps) {
+export function TerminalPanel({ wsUrl, visible, onStartChatHere }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -250,8 +251,19 @@ export function TerminalPanel({ wsUrl, visible }: TerminalPanelProps) {
       {selectMode && (
         <pre class="terminal-select-overlay">{bufferText}</pre>
       )}
-      {isMobile && (
-        <div class="terminal-mobile-controls">
+      <div class="terminal-mobile-controls">
+        {onStartChatHere && (
+          <button
+            class="terminal-ctrl-btn terminal-ctrl-chat"
+            onTouchStart={onStartChatHere ? (e) => { e.preventDefault(); onStartChatHere(); } : undefined}
+            onClick={onStartChatHere}
+            aria-label="Start Chat Here"
+            title="Start Chat Here"
+          >
+            <span class="material-symbols-outlined">add_comment</span>
+          </button>
+        )}
+        {isMobile && (
           <button
             class={`terminal-ctrl-btn ${selectMode ? 'active' : ''}`}
             onTouchStart={(e) => { e.preventDefault(); toggleSelectMode(); }}
@@ -260,15 +272,15 @@ export function TerminalPanel({ wsUrl, visible }: TerminalPanelProps) {
           >
             <span class="material-symbols-outlined">{selectMode ? 'terminal' : 'select_all'}</span>
           </button>
-          <div class="terminal-ctrl-spacer" />
-          <button class="terminal-ctrl-btn" onTouchStart={(e) => { e.preventDefault(); sendKey('\x1b[A'); }} onClick={() => sendKey('\x1b[A')} aria-label="Up">
-            <span class="material-symbols-outlined">keyboard_arrow_up</span>
-          </button>
-          <button class="terminal-ctrl-btn" onTouchStart={(e) => { e.preventDefault(); sendKey('\x1b[B'); }} onClick={() => sendKey('\x1b[B')} aria-label="Down">
-            <span class="material-symbols-outlined">keyboard_arrow_down</span>
-          </button>
-        </div>
-      )}
+        )}
+        <div class="terminal-ctrl-spacer" />
+        <button class="terminal-ctrl-btn" onTouchStart={(e) => { e.preventDefault(); sendKey('\x1b[A'); }} onClick={() => sendKey('\x1b[A')} aria-label="Up">
+          <span class="material-symbols-outlined">keyboard_arrow_up</span>
+        </button>
+        <button class="terminal-ctrl-btn" onTouchStart={(e) => { e.preventDefault(); sendKey('\x1b[B'); }} onClick={() => sendKey('\x1b[B')} aria-label="Down">
+          <span class="material-symbols-outlined">keyboard_arrow_down</span>
+        </button>
+      </div>
     </div>
   );
 }

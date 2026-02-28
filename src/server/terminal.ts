@@ -49,6 +49,10 @@ export class TerminalSession {
     });
   }
 
+  get pid(): number {
+    return this.pty.pid;
+  }
+
   onData(callback: (data: string) => void): void {
     this.dataCallback = callback;
   }

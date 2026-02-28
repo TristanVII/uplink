@@ -24,6 +24,15 @@ export interface ServerResult {
   close: () => void;
 }
 
+/** A single chat session slot with its own bridge and cwd. */
+interface SessionSlot {
+  id: string;
+  cwd: string;
+  bridge: Bridge;
+  socket: WebSocket | null;
+  pendingSessionNewIds: Set<number | string>;
+}
+
 /**
  * Discover plugin skills directories so copilot in ACP mode can find them.
  * Copilot CLI doesn't load installed-plugin skills in --acp mode unless
@@ -119,25 +128,6 @@ export function startServer(options: ServerOptions): ServerResult {
     const sessions = await getRecentSessions(cwd, limit);
     res.json({ sessions });
   });
-  
-  // Serve static files if configured
-  if (options.staticDir) {
-    app.use(express.static(options.staticDir, {
-      setHeaders: (res, filePath) => {
-        if (filePath.endsWith('manifest.json')) {
-          res.setHeader('Content-Type', 'application/manifest+json');
-        }
-      },
-    }));
-    // SPA fallback: serve index.html for unknown routes
-    app.get('*', (req, res) => {
-      if (options.staticDir) {
-        res.sendFile(path.join(options.staticDir, 'index.html'));
-      } else {
-        res.status(404).send('Not found');
-      }
-    });
-  }
 
   const server = createServer(app);
   const wss = new WebSocketServer({ noServer: true });
@@ -159,10 +149,151 @@ export function startServer(options: ServerOptions): ServerResult {
     }
   });
 
-  // Track the active bridge and socket
-  let activeBridge: Bridge | null = null;
-  let activeSocket: WebSocket | null = null;
+  // ─── Multi-session management ──────────────────────────────────────
+  const sessionSlots = new Map<string, SessionSlot>();
   let activeTerminal: TerminalSession | null = null;
+
+  /** Determine command and args for bridge spawning. */
+  function getBridgeCommand(): { command: string; args: string[] } {
+    const envCommand = !options.copilotCommand ? process.env.COPILOT_COMMAND : undefined;
+    if (envCommand) {
+      const parts = envCommand.split(' ');
+      return { command: parts[0], args: parts.slice(1) };
+    }
+    return {
+      command: options.copilotCommand ?? 'copilot',
+      args: options.copilotArgs ?? ['--acp', '--stdio'],
+    };
+  }
+
+  /** Build bridge env with plugin skills discovery. */
+  function getBridgeEnv(): Record<string, string | undefined> | undefined {
+    const bridgeEnv: Record<string, string | undefined> = {};
+    const skillsDirs = process.env.COPILOT_SKILLS_DIRS ?? discoverPluginSkillsDirs();
+    if (skillsDirs) {
+      bridgeEnv.COPILOT_SKILLS_DIRS = skillsDirs;
+    }
+    return Object.keys(bridgeEnv).length > 0 ? bridgeEnv : undefined;
+  }
+
+  /** Create a new session slot with its own bridge in the given cwd. */
+  function createSessionSlot(cwd: string): SessionSlot {
+    const id = randomBytes(8).toString('hex');
+    const { command, args } = getBridgeCommand();
+    const bridgeOptions: BridgeOptions = { command, args, cwd, env: getBridgeEnv() };
+
+    console.log(`Creating session ${id} in ${cwd} (${command} ${args.join(' ')})`);
+
+    const bridge = new Bridge(bridgeOptions);
+    const slot: SessionSlot = {
+      id,
+      cwd,
+      bridge,
+      socket: null,
+      pendingSessionNewIds: new Set(),
+    };
+
+    sessionSlots.set(id, slot);
+    return slot;
+  }
+
+  /** Kill and remove a session slot. */
+  function destroySessionSlot(slotId: string): void {
+    const slot = sessionSlots.get(slotId);
+    if (!slot) return;
+    slot.bridge.kill();
+    if (slot.socket && slot.socket.readyState === WebSocket.OPEN) {
+      slot.socket.close(1000, 'Session destroyed');
+    }
+    sessionSlots.delete(slotId);
+    console.log(`Session ${slotId} destroyed`);
+  }
+
+  // ─── Session management endpoints ──────────────────────────────────
+  app.use(express.json());
+
+  app.post('/api/sessions/create', (req, res) => {
+    const cwd = req.body?.cwd;
+    if (!cwd || typeof cwd !== 'string') {
+      res.status(400).json({ error: 'Missing required field: cwd' });
+      return;
+    }
+    const resolved = path.resolve(cwd);
+    if (!existsSync(resolved)) {
+      res.status(400).json({ error: `Directory does not exist: ${resolved}` });
+      return;
+    }
+    const slot = createSessionSlot(resolved);
+    res.json({ slotId: slot.id, cwd: slot.cwd });
+  });
+
+  app.get('/api/sessions/active', (_req, res) => {
+    const active = Array.from(sessionSlots.values()).map(s => ({
+      slotId: s.id,
+      cwd: s.cwd,
+      connected: s.socket !== null && s.socket.readyState === WebSocket.OPEN,
+    }));
+    console.log(`[sessions] Active slots queried: ${active.length} (${active.map(s => s.slotId).join(', ') || 'none'})`);
+    res.json({ sessions: active });
+  });
+
+  app.delete('/api/sessions/active/:slotId', (req, res) => {
+    const { slotId } = req.params;
+    if (!sessionSlots.has(slotId)) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    destroySessionSlot(slotId);
+    res.json({ ok: true });
+  });
+
+  // Endpoint to get terminal cwd
+  app.get('/api/terminal/cwd', (_req, res) => {
+    if (!activeTerminal) {
+      res.status(404).json({ error: 'No active terminal' });
+      return;
+    }
+    const pid = activeTerminal.pid;
+    if (!pid) {
+      res.status(500).json({ error: 'Cannot determine terminal PID' });
+      return;
+    }
+    // Use lsof to get the cwd of the shell process (macOS)
+    exec(`lsof -a -d cwd -p ${pid} -Fn 2>/dev/null | grep '^n' | head -1 | sed 's/^n//'`, { timeout: 5000 }, (err, stdout) => {
+      if (err || !stdout.trim()) {
+        // Fallback: try /proc on Linux
+        exec(`readlink -f /proc/${pid}/cwd 2>/dev/null`, { timeout: 5000 }, (err2, stdout2) => {
+          if (err2 || !stdout2.trim()) {
+            res.json({ cwd: resolvedCwd }); // fallback to server cwd
+          } else {
+            res.json({ cwd: stdout2.trim() });
+          }
+        });
+        return;
+      }
+      const cwd = stdout.trim().replace(/^n/, '');
+      res.json({ cwd: cwd || resolvedCwd });
+    });
+  });
+
+  // Serve static files if configured (must be after all API routes)
+  if (options.staticDir) {
+    app.use(express.static(options.staticDir, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('manifest.json')) {
+          res.setHeader('Content-Type', 'application/manifest+json');
+        }
+      },
+    }));
+    // SPA fallback: serve index.html for unknown routes
+    app.get('*', (req, res) => {
+      if (options.staticDir) {
+        res.sendFile(path.join(options.staticDir, 'index.html'));
+      } else {
+        res.status(404).send('Not found');
+      }
+    });
+  }
 
   wss.on('connection', (ws, request) => {
     // Validate session token
@@ -173,74 +304,73 @@ export function startServer(options: ServerOptions): ServerResult {
       return;
     }
 
-    // Enforce single connection
-    if (activeSocket && activeSocket.readyState === WebSocket.OPEN) {
-      console.log('New connection replacing existing one');
-      activeSocket.close();
-      if (activeBridge) {
-        activeBridge.kill();
-        activeBridge = null;
+    // Determine which session slot to connect to
+    const slotId = url.searchParams.get('slotId');
+    let slot: SessionSlot;
+
+    if (slotId && sessionSlots.has(slotId)) {
+      slot = sessionSlots.get(slotId)!;
+      // Close existing socket for this slot if any
+      if (slot.socket && slot.socket.readyState === WebSocket.OPEN) {
+        slot.socket.close(1000, 'Replaced by new connection');
       }
-    }
-
-    console.log('Client connected');
-    activeSocket = ws;
-
-    // Determine command and args
-    let command: string;
-    let args: string[];
-
-    const envCommand = !options.copilotCommand ? process.env.COPILOT_COMMAND : undefined;
-    if (envCommand) {
-      const parts = envCommand.split(' ');
-      command = parts[0];
-      args = parts.slice(1);
+    } else if (!slotId) {
+      // No slotId — create a default session (backwards compatible)
+      slot = createSessionSlot(resolvedCwd);
     } else {
-      command = options.copilotCommand ?? 'copilot';
-      args = options.copilotArgs ?? ['--acp', '--stdio'];
+      ws.close(4004, 'Session slot not found');
+      return;
     }
 
-    // Discover plugin skills for copilot ACP mode
-    const bridgeEnv: Record<string, string | undefined> = {};
-    const skillsDirs = process.env.COPILOT_SKILLS_DIRS ?? discoverPluginSkillsDirs();
-    if (skillsDirs) {
-      bridgeEnv.COPILOT_SKILLS_DIRS = skillsDirs;
+    console.log(`Client connected to session ${slot.id} (${slot.cwd})`);
+    slot.socket = ws;
+
+    // Keepalive ping every 15s to prevent idle timeout (mobile, tunnels)
+    let chatPingCount = 0;
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+        chatPingCount++;
+        if (chatPingCount % 4 === 0) {
+          console.log(`[keepalive] chat ${slot.id}: ${chatPingCount} pings sent`);
+        }
+      }
+    }, 15_000);
+
+    // If the bridge died, create a fresh one for this slot
+    if (!slot.bridge.isAlive()) {
+      const { command, args } = getBridgeCommand();
+      const bridgeOptions: BridgeOptions = { command, args, cwd: slot.cwd, env: getBridgeEnv() };
+      slot.bridge = new Bridge(bridgeOptions);
+      console.log(`Respawned bridge for session ${slot.id}`);
     }
 
-    const bridgeOptions: BridgeOptions = {
-      command,
-      args,
-      cwd: resolvedCwd,
-      env: Object.keys(bridgeEnv).length > 0 ? bridgeEnv : undefined,
-    };
-
-    console.log(`Spawning bridge: ${bridgeOptions.command} ${bridgeOptions.args.join(' ')}`);
-
-    let bridge = new Bridge(bridgeOptions);
-    activeBridge = bridge;
+    const bridge = slot.bridge;
 
     try {
       bridge.spawn();
     } catch (err) {
-      console.error('Failed to spawn bridge:', err);
-      ws.close(1011, 'Failed to spawn bridge');
-      return;
+      // spawn() throws if already spawned — that's fine (existing live bridge)
+      if (!bridge.isAlive()) {
+        console.error('Failed to spawn bridge:', err);
+        ws.close(1011, 'Failed to spawn bridge');
+        clearInterval(pingInterval);
+        destroySessionSlot(slot.id);
+        return;
+      }
     }
-
-    // Track pending session/new request IDs to capture session creation
-    const pendingSessionNewIds = new Set<number | string>();
 
     // Bridge -> WebSocket (intercept session/new responses)
     bridge.onMessage((line) => {
       if (ws.readyState !== WebSocket.OPEN) return;
 
       // Check if this is a response to a session/new request
-      if (pendingSessionNewIds.size > 0) {
+      if (slot.pendingSessionNewIds.size > 0) {
         try {
           const msg = JSON.parse(line);
-          if (msg.id != null && pendingSessionNewIds.has(msg.id) && msg.result?.sessionId) {
-            pendingSessionNewIds.delete(msg.id);
-            recordSession(resolvedCwd, msg.result.sessionId);
+          if (msg.id != null && slot.pendingSessionNewIds.has(msg.id) && msg.result?.sessionId) {
+            slot.pendingSessionNewIds.delete(msg.id);
+            recordSession(slot.cwd, msg.result.sessionId);
           }
         } catch {
           // Not valid JSON — ignore
@@ -251,19 +381,17 @@ export function startServer(options: ServerOptions): ServerResult {
     });
 
     bridge.onError((err) => {
-      console.error('Bridge error:', err);
+      console.error(`Bridge error (session ${slot.id}):`, err);
       if (ws.readyState === WebSocket.OPEN) {
         ws.close(1011, 'Bridge error');
       }
     });
 
     bridge.onClose((code) => {
-      console.log(`Bridge closed with code ${code}`);
+      console.log(`Bridge closed with code ${code} (session ${slot.id})`);
       if (ws.readyState === WebSocket.OPEN) {
-        ws.close(1000, 'Bridge closed');
-      }
-      if (activeBridge === bridge) {
-        activeBridge = null;
+        // Use 4100 (custom) so client knows bridge died (not a clean close)
+        ws.close(4100, 'Bridge closed');
       }
     });
 
@@ -278,7 +406,7 @@ export function startServer(options: ServerOptions): ServerResult {
       }
 
       if (parsed?.method === 'uplink/shell') {
-        handleShellCommand(ws, parsed.id, parsed.params?.command, resolvedCwd);
+        handleShellCommand(ws, parsed.id, parsed.params?.command, slot.cwd);
         return;
       }
 
@@ -295,23 +423,19 @@ export function startServer(options: ServerOptions): ServerResult {
 
       // Track session/new requests to capture the session ID from the response
       if (parsed?.method === 'session/new' && parsed.id != null) {
-        pendingSessionNewIds.add(parsed.id);
+        slot.pendingSessionNewIds.add(parsed.id);
       }
 
-      if (activeBridge === bridge) {
-        bridge.send(raw);
-      }
+      bridge.send(raw);
     });
 
     ws.on('close', () => {
-      console.log('Client disconnected');
-      if (activeSocket === ws) {
-        activeSocket = null;
+      console.log(`Client disconnected from session ${slot.id}`);
+      clearInterval(pingInterval);
+      if (slot.socket === ws) {
+        slot.socket = null;
       }
-      bridge.kill();
-      if (activeBridge === bridge) {
-        activeBridge = null;
-      }
+      // Don't destroy the slot on disconnect — allow reconnecting
     });
 
     ws.on('error', (err) => {
@@ -347,9 +471,14 @@ export function startServer(options: ServerOptions): ServerResult {
     activeTerminal = terminal;
 
     // Keepalive ping every 15s to prevent idle timeout (mobile, tunnels)
+    let termPingCount = 0;
     const pingInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.ping();
+        termPingCount++;
+        if (termPingCount % 4 === 0) {
+          console.log(`[keepalive] terminal: ${termPingCount} pings sent`);
+        }
       }
     }, 15_000);
 
@@ -399,9 +528,8 @@ export function startServer(options: ServerOptions): ServerResult {
       activeTerminal = null;
     }
 
-    if (activeBridge) {
-      activeBridge.kill();
-      activeBridge = null;
+    for (const [id] of sessionSlots) {
+      destroySessionSlot(id);
     }
 
     for (const client of wss.clients) {
@@ -412,8 +540,6 @@ export function startServer(options: ServerOptions): ServerResult {
         client.close(1001, 'Server shutting down');
       }
     }
-
-    activeSocket = null;
   };
 
   return { server, sessionToken, close };

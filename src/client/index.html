@@ -24,24 +24,15 @@
       </a>
     </header>
     <nav id="tab-bar">
-      <button class="tab active" data-tab="chat"><span class="material-symbols-outlined">chat</span> Chat</button>
-      <button class="tab" data-tab="terminal"><span class="material-symbols-outlined">terminal</span> Terminal</button>
+      <button class="tab active" data-tab="terminal"><span class="material-symbols-outlined">terminal</span> Terminal</button>
+      <!-- Chat tabs will be added dynamically -->
     </nav>
-    <main id="chat-area">
-      <!-- Messages will be rendered here -->
-    </main>
-    <div id="terminal-area" hidden>
+    <div id="terminal-area">
       <!-- Terminal will be mounted here -->
     </div>
-    <footer id="input-area">
-      <div id="palette-mount"></div>
-      <div id="input-wrapper">
-        <textarea id="prompt-input" placeholder="Prompt or / for commands" rows="1" aria-label="Message to Copilot"></textarea>
-        <span id="model-label"></span>
-      </div>
-      <button id="send-btn" disabled>Send</button>
-      <button id="cancel-btn" hidden>Cancel</button>
-    </footer>
+    <div id="chat-panels">
+      <!-- Chat panels (one per session) will be created dynamically -->
+    </div>
   </div>
   <script type="module" src="./main.ts"></script>
 </body>

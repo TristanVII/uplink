@@ -3,42 +3,135 @@ import { Conversation } from './conversation.js';
 import { ChatList } from './ui/chat.js';
 import { TerminalPanel } from './ui/terminal.js';
 import { showPermissionRequest, cancelAllPermissions } from './ui/permission.js';
-import { fetchSessions, openSessionsModal, SessionsModal } from './ui/sessions.js';
+import { openSessionsModal, SessionsModal } from './ui/sessions.js';
 import { CommandPalette, type PaletteItem } from './ui/command-palette.js';
 import { getCompletions, parseSlashCommand, setAvailableModels, findModelName } from './slash-commands.js';
 import { render, h } from 'preact';
 import 'material-symbols/outlined.css';
 
+// ─── Constants ────────────────────────────────────────────────────────
+
+const MAX_CHAT_TABS = 4;
+
 // ─── DOM References ───────────────────────────────────────────────────
 
-const chatArea = document.getElementById('chat-area')!;
 const terminalArea = document.getElementById('terminal-area')!;
-const promptInput = document.getElementById('prompt-input') as HTMLTextAreaElement;
-const sendBtn = document.getElementById('send-btn') as HTMLButtonElement;
-const cancelBtn = document.getElementById('cancel-btn') as HTMLButtonElement;
-const modelLabel = document.getElementById('model-label')!;
-const tabButtons = document.querySelectorAll<HTMLButtonElement>('#tab-bar .tab');
+const chatPanelsContainer = document.getElementById('chat-panels')!;
+const tabBar = document.getElementById('tab-bar')!;
 
 let yoloMode = localStorage.getItem('uplink-yolo') === 'true';
 
-// ─── Tab Switching ────────────────────────────────────────────────────
+// ─── Session Persistence ──────────────────────────────────────────────
 
-let activeTab: 'chat' | 'terminal' = 'chat';
+const STORAGE_KEY_SESSIONS = 'uplink-sessions';
+const STORAGE_KEY_ACTIVE_TAB = 'uplink-active-tab';
+const STORAGE_KEY_MESSAGES_PREFIX = 'uplink-messages-';
 
-function switchTab(tab: 'chat' | 'terminal'): void {
-  activeTab = tab;
-  tabButtons.forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.tab === tab);
-  });
-  chatArea.hidden = tab !== 'chat';
-  document.getElementById('input-area')!.hidden = tab !== 'chat';
-  terminalArea.hidden = tab !== 'terminal';
-  renderTerminal();
+interface SavedSession {
+  slotId: string;
+  cwd: string;
 }
 
-tabButtons.forEach(btn => {
-  btn.addEventListener('click', () => switchTab(btn.dataset.tab as 'chat' | 'terminal'));
-});
+function saveSessionState(): void {
+  const saved: SavedSession[] = [...sessions.values()].map(s => ({
+    slotId: s.slotId,
+    cwd: s.cwd,
+  }));
+  localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(saved));
+  localStorage.setItem(STORAGE_KEY_ACTIVE_TAB, activeTab);
+}
+
+function saveConversation(slotId: string): void {
+  const session = sessions.get(slotId);
+  if (!session) return;
+  // Save only text messages (user/agent/system) — tool calls and permissions are transient
+  const msgs = session.conversation.messages.map(m => ({
+    role: m.role,
+    content: m.content,
+    timestamp: m.timestamp,
+  }));
+  try {
+    localStorage.setItem(STORAGE_KEY_MESSAGES_PREFIX + slotId, JSON.stringify(msgs));
+  } catch {
+    // localStorage full — silently ignore
+  }
+}
+
+function loadSavedMessages(slotId: string): Array<{ role: string; content: string; timestamp: number }> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_MESSAGES_PREFIX + slotId);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function clearSavedMessages(slotId: string): void {
+  localStorage.removeItem(STORAGE_KEY_MESSAGES_PREFIX + slotId);
+}
+
+// ─── Multi-Tab Session State ──────────────────────────────────────────
+
+interface ChatSession {
+  slotId: string;
+  cwd: string;
+  client: AcpClient;
+  conversation: Conversation;
+  panel: HTMLElement;
+}
+
+/** Per-session palette state */
+interface PaletteState {
+  items: PaletteItem[];
+  selectedIndex: number;
+  visible: boolean;
+}
+
+const sessions = new Map<string, ChatSession>();
+const paletteStates = new Map<string, PaletteState>();
+let activeTab: 'terminal' | string = 'terminal'; // 'terminal' or a slotId
+
+function getActiveSession(): ChatSession | null {
+  if (activeTab === 'terminal') return null;
+  return sessions.get(activeTab) ?? null;
+}
+
+// ─── Tab Switching ────────────────────────────────────────────────────
+
+function switchTab(tab: 'terminal' | string): void {
+  activeTab = tab;
+  localStorage.setItem(STORAGE_KEY_ACTIVE_TAB, tab);
+
+  // Update tab button states
+  tabBar.querySelectorAll<HTMLButtonElement>('.tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+
+  // Toggle terminal visibility
+  terminalArea.hidden = tab !== 'terminal';
+
+  // Toggle chat panels
+  for (const [slotId, session] of sessions) {
+    session.panel.hidden = slotId !== tab;
+  }
+
+  renderTerminal();
+
+  // Update connection status
+  const session = getActiveSession();
+  if (session) {
+    updateConnectionStatus(session.client.connectionState);
+  } else {
+    // Terminal tab — show neutral status
+    const el = document.getElementById('connection-status')!;
+    el.textContent = 'Terminal';
+    el.className = 'status-connected';
+  }
+}
+
+// Wire up the static terminal tab button
+tabBar.querySelector<HTMLButtonElement>('[data-tab="terminal"]')!
+  .addEventListener('click', () => switchTab('terminal'));
 
 // ─── Mode ─────────────────────────────────────────────────────────────
 
@@ -81,55 +174,348 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-// ─── UI Components ────────────────────────────────────────────────────
+// ─── Sessions Modal ───────────────────────────────────────────────────
 
-const conversation = new Conversation();
-
-// Mount all timeline components into a single chatContainer.
-// ChatList renders messages, and child components (tool calls, permissions,
-// plans) are passed as children so they appear inline in the message flow.
-const chatContainer = document.createElement('div');
-chatContainer.className = 'chat-container chat-messages';
-chatArea.appendChild(chatContainer);
-
-function renderChat(): void {
-  render(
-    h(ChatList, { conversation, scrollContainer: chatArea }),
-    chatContainer,
-  );
-}
-renderChat();
-
-// Mount Preact sessions modal on body
 const sessionsModalContainer = document.createElement('div');
 document.body.appendChild(sessionsModalContainer);
 render(h(SessionsModal, {}), sessionsModalContainer);
 
-// Mount terminal panel
+// ─── Terminal Panel ───────────────────────────────────────────────────
+
 let terminalWsUrl = '';
 function renderTerminal(): void {
   render(
-    h(TerminalPanel, { wsUrl: terminalWsUrl, visible: activeTab === 'terminal' }),
+    h(TerminalPanel, {
+      wsUrl: terminalWsUrl,
+      visible: activeTab === 'terminal',
+      onStartChatHere: handleStartChatHere,
+    }),
     terminalArea,
   );
 }
 
-/** Clear all conversation state when session changes. */
-function clearConversation(): void {
-  conversation.clear();
-  cancelAllPermissions(conversation);
+// ─── Chat Panel DOM Factory ───────────────────────────────────────────
+
+function createChatPanel(slotId: string): HTMLElement {
+  const panel = document.createElement('div');
+  panel.className = 'chat-panel';
+  panel.dataset.slotId = slotId;
+  panel.hidden = true;
+
+  // Scrollable messages area
+  const chatArea = document.createElement('div');
+  chatArea.className = 'chat-area';
+
+  const chatContainer = document.createElement('div');
+  chatContainer.className = 'chat-container chat-messages';
+  chatArea.appendChild(chatContainer);
+
+  // Input footer
+  const inputArea = document.createElement('div');
+  inputArea.className = 'input-area';
+
+  const paletteMount = document.createElement('div');
+  paletteMount.className = 'palette-mount';
+
+  const inputWrapper = document.createElement('div');
+  inputWrapper.className = 'input-wrapper';
+
+  const textarea = document.createElement('textarea');
+  textarea.className = 'prompt-input';
+  textarea.placeholder = 'Ask anything…';
+  textarea.rows = 1;
+
+  const modelLabel = document.createElement('span');
+  modelLabel.className = 'model-label';
+
+  const sendBtn = document.createElement('button');
+  sendBtn.className = 'send-btn';
+  sendBtn.textContent = 'Send';
+  sendBtn.disabled = true;
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'cancel-btn';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.hidden = true;
+
+  inputWrapper.append(textarea, modelLabel);
+  inputArea.append(paletteMount, inputWrapper, sendBtn, cancelBtn);
+  panel.append(chatArea, inputArea);
+  chatPanelsContainer.appendChild(panel);
+
+  // ── Per-panel event wiring ──
+
+  const ps: PaletteState = { items: [], selectedIndex: 0, visible: false };
+  paletteStates.set(slotId, ps);
+
+  function renderPanelPalette(): void {
+    if (!ps.visible || ps.items.length === 0) {
+      render(null, paletteMount);
+      return;
+    }
+    render(
+      h(CommandPalette, {
+        items: ps.items,
+        selectedIndex: ps.selectedIndex,
+        onSelect: (item: PaletteItem) => acceptPanelCompletion(item),
+        onHover: (i: number) => { ps.selectedIndex = i; renderPanelPalette(); },
+      }),
+      paletteMount,
+    );
+  }
+
+  function showPanelPalette(): void {
+    ps.items = getCompletions(textarea.value);
+    ps.selectedIndex = 0;
+    ps.visible = ps.items.length > 0;
+    renderPanelPalette();
+  }
+
+  function hidePanelPalette(): void {
+    ps.visible = false;
+    renderPanelPalette();
+  }
+
+  function acceptPanelCompletion(item: PaletteItem): void {
+    textarea.value = item.fill;
+    textarea.focus();
+    updatePanelBorderPreview();
+    if (item.fill.endsWith(' ')) {
+      showPanelPalette();
+    } else {
+      hidePanelPalette();
+      sendBtn.click();
+    }
+  }
+
+  function updatePanelBorderPreview(): void {
+    if (textarea.value.startsWith('!')) {
+      document.documentElement.setAttribute('data-mode', 'shell-input');
+    } else if (textarea.value.startsWith('/')) {
+      const parts = textarea.value.slice(1).split(/\s/, 1);
+      const cmd = parts[0]?.toLowerCase();
+      if (cmd === 'plan' || cmd === 'autopilot') {
+        document.documentElement.setAttribute('data-mode', cmd);
+      } else if (cmd === 'agent') {
+        document.documentElement.setAttribute('data-mode', 'chat');
+      } else {
+        document.documentElement.setAttribute('data-mode', currentMode);
+      }
+    } else {
+      document.documentElement.setAttribute('data-mode', currentMode);
+    }
+  }
+
+  // Auto-resize textarea
+  textarea.addEventListener('input', () => {
+    textarea.style.height = 'auto';
+    const maxH = 150;
+    const scrollH = textarea.scrollHeight;
+    textarea.style.height = Math.min(scrollH, maxH) + 'px';
+    textarea.style.overflowY = scrollH > maxH ? 'auto' : 'hidden';
+    updatePanelBorderPreview();
+    if (textarea.value.startsWith('/')) {
+      showPanelPalette();
+    } else {
+      hidePanelPalette();
+    }
+  });
+
+  // Keyboard handling
+  textarea.addEventListener('keydown', (e) => {
+    if (ps.visible) {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        ps.selectedIndex = Math.max(0, ps.selectedIndex - 1);
+        renderPanelPalette();
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        ps.selectedIndex = Math.min(ps.items.length - 1, ps.selectedIndex + 1);
+        renderPanelPalette();
+        return;
+      }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault();
+        if (ps.items[ps.selectedIndex]) {
+          acceptPanelCompletion(ps.items[ps.selectedIndex]);
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        hidePanelPalette();
+        return;
+      }
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendBtn.click();
+    }
+  });
+
+  // Send
+  sendBtn.addEventListener('click', async () => {
+    const text = textarea.value.trim();
+    const session = sessions.get(slotId);
+    if (!text || !session) return;
+
+    const { client, conversation } = session;
+    textarea.value = '';
+    textarea.style.height = 'auto';
+    hidePanelPalette();
+    document.documentElement.setAttribute('data-mode', currentMode);
+
+    // Shell commands
+    if (text.startsWith('!')) {
+      const command = text.slice(1).trim();
+      if (!command) return;
+      conversation.addUserMessage(`$ ${command}`);
+      try {
+        const result = await client.sendRawRequest<{
+          stdout: string; stderr: string; exitCode: number;
+        }>('uplink/shell', { command });
+        conversation.addShellResult(command, result.stdout, result.stderr, result.exitCode);
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        conversation.addShellResult(command, '', errorMessage, 1);
+      }
+      return;
+    }
+
+    // Slash commands
+    let promptText = text;
+    const parsed = parseSlashCommand(text);
+    if (parsed) {
+      if (parsed.kind === 'client') {
+        const remainingPrompt = handleClientCommand(parsed.command, parsed.arg);
+        if (!remainingPrompt) return;
+        promptText = remainingPrompt;
+      } else if (parsed.command === '/model' && parsed.arg) {
+        const name = findModelName(parsed.arg);
+        if (name) modelLabel.textContent = name;
+      }
+    }
+
+    conversation.addUserMessage(text);
+
+    if (currentMode === 'plan' && !text.startsWith('/')) {
+      promptText = `/plan ${promptText}`;
+    }
+
+    const MAX_AUTOPILOT_TURNS = 25;
+    try {
+      let stopReason = await client.prompt(promptText);
+      let turns = 0;
+      while (currentMode === 'autopilot' && stopReason === 'end_turn' && turns < MAX_AUTOPILOT_TURNS) {
+        turns++;
+        conversation.addUserMessage('continue');
+        stopReason = await client.prompt('continue');
+      }
+      if (turns >= MAX_AUTOPILOT_TURNS) {
+        conversation.addSystemMessage('Autopilot stopped: reached maximum turns');
+      }
+    } catch (err) {
+      console.error('Prompt error:', err);
+    }
+  });
+
+  // Cancel
+  cancelBtn.addEventListener('click', () => {
+    const session = sessions.get(slotId);
+    if (session) {
+      session.client.cancel();
+      cancelAllPermissions(session.conversation);
+    }
+    if (currentMode === 'autopilot') {
+      applyMode('chat');
+      sessions.get(slotId)?.conversation.addSystemMessage('Autopilot cancelled');
+    }
+  });
+
+  return panel;
 }
 
-// ─── WebSocket / ACP Client ──────────────────────────────────────────
+// ─── Chat Rendering ───────────────────────────────────────────────────
+
+function renderChat(slotId: string): void {
+  const session = sessions.get(slotId);
+  if (!session) return;
+  const chatArea = session.panel.querySelector<HTMLElement>('.chat-area')!;
+  const chatContainer = session.panel.querySelector<HTMLElement>('.chat-container')!;
+  render(
+    h(ChatList, { conversation: session.conversation, scrollContainer: chatArea }),
+    chatContainer,
+  );
+}
+
+// ─── Tab Bar Management ───────────────────────────────────────────────
+
+function addTabButton(slotId: string, cwd: string): void {
+  const folderName = cwd.split('/').pop() || cwd;
+
+  const btn = document.createElement('button');
+  btn.className = 'tab';
+  btn.dataset.tab = slotId;
+
+  const statusDot = document.createElement('span');
+  statusDot.className = 'tab-status tab-status-connecting';
+  statusDot.title = 'Connecting…';
+
+  const label = document.createElement('span');
+  label.textContent = `📁 ${folderName}`;
+  label.title = cwd;
+
+  const closeBtn = document.createElement('span');
+  closeBtn.className = 'tab-close';
+  closeBtn.textContent = '✕';
+  closeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeSession(slotId);
+  });
+
+  btn.append(statusDot, label, closeBtn);
+  btn.addEventListener('click', () => switchTab(slotId));
+  tabBar.appendChild(btn);
+}
+
+function updateTabStatus(slotId: string, state: ConnectionState): void {
+  const btn = tabBar.querySelector<HTMLButtonElement>(`[data-tab="${slotId}"]`);
+  if (!btn) return;
+  const dot = btn.querySelector<HTMLElement>('.tab-status');
+  if (!dot) return;
+
+  // Map state to visual class
+  if (state === 'prompting') {
+    dot.className = 'tab-status tab-status-running';
+    dot.title = 'Running…';
+  } else if (state === 'ready') {
+    dot.className = 'tab-status tab-status-idle';
+    dot.title = 'Idle';
+  } else if (state === 'connecting' || state === 'initializing') {
+    dot.className = 'tab-status tab-status-connecting';
+    dot.title = 'Connecting…';
+  } else {
+    dot.className = 'tab-status tab-status-disconnected';
+    dot.title = 'Disconnected';
+  }
+}
+
+function removeTabButton(slotId: string): void {
+  const btn = tabBar.querySelector<HTMLButtonElement>(`[data-tab="${slotId}"]`);
+  btn?.remove();
+}
+
+// ─── Connection Status ────────────────────────────────────────────────
 
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-
-let client: AcpClient | null = null;
-let clientCwd: string = '';
+let sessionToken = '';
+let serverCwd = '';
 
 function updateConnectionStatus(state: ConnectionState): void {
   const el = document.getElementById('connection-status')!;
-  // Show "ready" instead of "prompting" since we have the dots indicator
   const displayState = state === 'prompting' ? 'ready' : state;
   el.textContent = displayState;
   el.className = `status-${
@@ -140,36 +526,55 @@ function updateConnectionStatus(state: ConnectionState): void {
         : 'disconnected'
   }`;
 
-  sendBtn.disabled = state !== 'ready';
-  sendBtn.hidden = state === 'prompting';
-  cancelBtn.hidden = state !== 'prompting';
+  // Update send/cancel buttons for the active session's panel
+  const session = getActiveSession();
+  if (session) {
+    const sendBtn = session.panel.querySelector<HTMLButtonElement>('.send-btn')!;
+    const cancelBtn = session.panel.querySelector<HTMLButtonElement>('.cancel-btn')!;
+    sendBtn.disabled = state !== 'ready';
+    sendBtn.hidden = state === 'prompting';
+    cancelBtn.hidden = state !== 'prompting';
 
-  conversation.isPrompting = state === 'prompting';
-  conversation.notify();
+    session.conversation.isPrompting = state === 'prompting';
+    session.conversation.notify();
+  }
 }
 
-async function initializeClient() {
-  const tokenResponse = await fetch('/api/token');
-  const { token, cwd } = await tokenResponse.json();
-  clientCwd = cwd;
+// ─── ACP Client Factory ──────────────────────────────────────────────
 
-  const wsUrl = `${wsProtocol}//${location.host}/ws?token=${encodeURIComponent(token)}`;
-  terminalWsUrl = `${wsProtocol}//${location.host}/ws/terminal?token=${encodeURIComponent(token)}`;
-  renderTerminal();
+function createClientForSlot(slotId: string, cwd: string): AcpClient {
+  const wsUrl = `${wsProtocol}//${location.host}/ws?token=${encodeURIComponent(sessionToken)}&slotId=${encodeURIComponent(slotId)}`;
 
   return new AcpClient({
     wsUrl,
     cwd,
-    onStateChange: (state) => updateConnectionStatus(state),
-    onSessionUpdate: (update) => conversation.handleSessionUpdate(update),
+    onStateChange: (state) => {
+      updateTabStatus(slotId, state);
+      if (activeTab === slotId) {
+        updateConnectionStatus(state);
+      }
+    },
+    onSessionUpdate: (update) => {
+      const s = sessions.get(slotId);
+      if (s) {
+        s.conversation.handleSessionUpdate(update);
+        if (activeTab === slotId) renderChat(slotId);
+      }
+    },
     onModelsAvailable: (models, currentModelId) => {
       setAvailableModels(models);
       if (currentModelId) {
-        const model = models.find((m) => m.modelId === currentModelId);
-        modelLabel.textContent = model?.name ?? currentModelId;
+        const session = sessions.get(slotId);
+        if (session) {
+          const model = models.find((m) => m.modelId === currentModelId);
+          const label = session.panel.querySelector<HTMLElement>('.model-label');
+          if (label) label.textContent = model?.name ?? currentModelId;
+        }
       }
     },
     onPermissionRequest: (request, respond) => {
+      const s = sessions.get(slotId);
+      if (!s) return;
       const autoApproveId = yoloMode
         ? request.options.find(
             (o) => o.kind === 'allow_once' || o.kind === 'allow_always',
@@ -177,7 +582,7 @@ async function initializeClient() {
         : undefined;
 
       showPermissionRequest(
-        conversation,
+        s.conversation,
         request.id,
         request.toolCall.toolCallId,
         request.toolCall.title ?? 'Unknown action',
@@ -186,229 +591,124 @@ async function initializeClient() {
         autoApproveId,
       );
     },
-    onError: (error) => console.error('ACP error:', error),
+    onError: (error) => console.error(`ACP error (session ${slotId}):`, error),
   });
 }
 
-// ─── Input Handling ───────────────────────────────────────────────────
+// ─── Session Lifecycle ────────────────────────────────────────────────
 
-sendBtn.addEventListener('click', async () => {
-  const text = promptInput.value.trim();
-  if (!text || !client) return;
+async function createSession(cwd: string): Promise<ChatSession> {
+  const res = await fetch('/api/sessions/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cwd }),
+  });
+  const { slotId, cwd: resolvedCwd } = await res.json();
 
-  promptInput.value = '';
-  promptInput.style.height = 'auto';
-  hidePalette();
-  document.documentElement.setAttribute('data-mode', currentMode);
+  const client = createClientForSlot(slotId, resolvedCwd);
+  const conversation = new Conversation();
+  const panel = createChatPanel(slotId);
 
-  // Shell commands: !<command>
-  if (text.startsWith('!')) {
-    const command = text.slice(1).trim();
-    if (!command) return;
+  // Re-render chat on conversation changes and persist messages
+  conversation.onChange(() => {
+    if (activeTab === slotId) renderChat(slotId);
+    saveConversation(slotId);
+  });
 
-    conversation.addUserMessage(`$ ${command}`);
+  const session: ChatSession = { slotId, cwd: resolvedCwd, client, conversation, panel };
+  sessions.set(slotId, session);
+  saveSessionState();
 
-    try {
-      const result = await client.sendRawRequest<{
-        stdout: string;
-        stderr: string;
-        exitCode: number;
-      }>('uplink/shell', { command });
-      conversation.addShellResult(command, result.stdout, result.stderr, result.exitCode);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      conversation.addShellResult(command, '', errorMessage, 1);
-    }
+  addTabButton(slotId, resolvedCwd);
+  client.connect().catch(console.error);
+  return session;
+}
+
+async function closeSession(slotId: string): Promise<void> {
+  const session = sessions.get(slotId);
+  if (!session) return;
+
+  // Disconnect client and clean up
+  session.client.disconnect();
+  session.panel.remove();
+  sessions.delete(slotId);
+  paletteStates.delete(slotId);
+  removeTabButton(slotId);
+  clearSavedMessages(slotId);
+  saveSessionState();
+
+  // Tell the server to destroy the session slot
+  fetch(`/api/sessions/active/${encodeURIComponent(slotId)}`, { method: 'DELETE' }).catch(console.error);
+
+  // Switch to another tab
+  if (activeTab === slotId) {
+    const remaining = [...sessions.keys()];
+    switchTab(remaining.length > 0 ? remaining[remaining.length - 1] : 'terminal');
+  }
+}
+
+// ─── "Start Chat Here" handler ────────────────────────────────────────
+
+async function handleStartChatHere(): Promise<void> {
+  if (sessions.size >= MAX_CHAT_TABS) {
+    console.warn(`Cannot open more than ${MAX_CHAT_TABS} chat tabs`);
     return;
   }
-
-  // Slash commands
-  let promptText = text;
-  const parsed = parseSlashCommand(text);
-  if (parsed) {
-    if (parsed.kind === 'client') {
-      const remainingPrompt = handleClientCommand(parsed.command, parsed.arg);
-      if (!remainingPrompt) return;
-      // Mode command with a prompt — send the prompt portion
-      promptText = remainingPrompt;
-    } else if (parsed.command === '/model' && parsed.arg) {
-      const name = findModelName(parsed.arg);
-      if (name) modelLabel.textContent = name;
-    }
-  }
-
-  conversation.addUserMessage(text);
-
-  // In plan mode, prefix the message to instruct the agent to plan
-  if (currentMode === 'plan' && !text.startsWith('/')) {
-    promptText = `/plan ${promptText}`;
-  }
-
-  const MAX_AUTOPILOT_TURNS = 25;
 
   try {
-    let stopReason = await client.prompt(promptText);
-    // In autopilot mode, auto-continue when the agent ends its turn
-    let turns = 0;
-    while (currentMode === 'autopilot' && stopReason === 'end_turn' && turns < MAX_AUTOPILOT_TURNS) {
-      turns++;
-      conversation.addUserMessage('continue');
-      stopReason = await client.prompt('continue');
-    }
-    if (turns >= MAX_AUTOPILOT_TURNS) {
-      conversation.addSystemMessage('Autopilot stopped: reached maximum turns');
-    }
+    const res = await fetch('/api/terminal/cwd');
+    const { cwd } = await res.json();
+    const session = await createSession(cwd);
+    switchTab(session.slotId);
+    session.conversation.addSystemMessage(`Session started in ${cwd}`);
   } catch (err) {
-    console.error('Prompt error:', err);
+    console.error('Failed to start chat:', err);
   }
-});
+}
 
-cancelBtn.addEventListener('click', () => {
-  client?.cancel();
-  cancelAllPermissions(conversation);
-  // Stop autopilot auto-continue loop by switching back to chat mode
-  if (currentMode === 'autopilot') {
-    applyMode('chat');
-    conversation.addSystemMessage('Autopilot cancelled');
-  }
-});
+// ─── Active Sessions Modal ────────────────────────────────────────────
 
-promptInput.addEventListener('keydown', (e) => {
-  // Palette keyboard navigation
-  if (paletteVisible) {
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      paletteSelectedIndex = Math.max(0, paletteSelectedIndex - 1);
-      renderPalette();
-      return;
-    }
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      paletteSelectedIndex = Math.min(paletteItems.length - 1, paletteSelectedIndex + 1);
-      renderPalette();
-      return;
-    }
-    if (e.key === 'Tab' || e.key === 'Enter') {
-      e.preventDefault();
-      if (paletteItems[paletteSelectedIndex]) {
-        acceptCompletion(paletteItems[paletteSelectedIndex]);
+async function showActiveSessionsModal(): Promise<void> {
+  const res = await fetch('/api/sessions/active');
+  const { sessions: activeSlots } = await res.json() as { sessions: { slotId: string; cwd: string; connected: boolean }[] };
+
+  openSessionsModal(
+    activeSlots.map(s => ({
+      id: s.slotId,
+      cwd: s.cwd,
+      summary: s.cwd.split('/').pop() || s.cwd,
+      branch: s.cwd,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })),
+    true,
+    (slotId) => {
+      if (sessions.has(slotId)) {
+        switchTab(slotId);
       }
-      return;
-    }
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      hidePalette();
-      return;
-    }
-  }
-
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendBtn.click();
-  }
-});
-
-/** Update the input border color to preview the mode implied by the current input text. */
-function updateBorderPreview(): void {
-  if (promptInput.value.startsWith('!')) {
-    document.documentElement.setAttribute('data-mode', 'shell-input');
-  } else if (promptInput.value.startsWith('/')) {
-    const parts = promptInput.value.slice(1).split(/\s/, 1);
-    const cmd = parts[0]?.toLowerCase();
-    if (cmd === 'plan' || cmd === 'autopilot') {
-      document.documentElement.setAttribute('data-mode', cmd);
-    } else if (cmd === 'agent') {
-      document.documentElement.setAttribute('data-mode', 'chat');
-    } else {
-      document.documentElement.setAttribute('data-mode', currentMode);
-    }
-  } else {
-    document.documentElement.setAttribute('data-mode', currentMode);
-  }
-}
-
-promptInput.addEventListener('input', () => {
-  promptInput.style.height = 'auto';
-  const maxH = 150;
-  const scrollH = promptInput.scrollHeight;
-  promptInput.style.height = Math.min(scrollH, maxH) + 'px';
-  promptInput.style.overflowY = scrollH > maxH ? 'auto' : 'hidden';
-
-  // Dynamic border preview based on input prefix
-  updateBorderPreview();
-
-  // Show/update command palette when typing /
-  if (promptInput.value.startsWith('/')) {
-    showPalette();
-  } else {
-    hidePalette();
-  }
-});
-
-// ─── Command Palette ──────────────────────────────────────────────────
-
-const paletteMount = document.getElementById('palette-mount')!;
-let paletteItems: PaletteItem[] = [];
-let paletteSelectedIndex = 0;
-let paletteVisible = false;
-
-function renderPalette(): void {
-  if (!paletteVisible || paletteItems.length === 0) {
-    render(null, paletteMount);
-    return;
-  }
-  render(
-    h(CommandPalette, {
-      items: paletteItems,
-      selectedIndex: paletteSelectedIndex,
-      onSelect: (item) => acceptCompletion(item),
-      onHover: (i) => { paletteSelectedIndex = i; renderPalette(); },
-    }),
-    paletteMount,
+    },
+    async () => {
+      if (sessions.size >= MAX_CHAT_TABS) return;
+      const session = await createSession(serverCwd);
+      switchTab(session.slotId);
+    },
   );
-}
-
-function showPalette(): void {
-  const text = promptInput.value;
-  paletteItems = getCompletions(text);
-  paletteSelectedIndex = 0;
-  paletteVisible = paletteItems.length > 0;
-  renderPalette();
-}
-
-function hidePalette(): void {
-  paletteVisible = false;
-  renderPalette();
-}
-
-function acceptCompletion(item: PaletteItem): void {
-  promptInput.value = item.fill;
-  promptInput.focus();
-  updateBorderPreview();
-  if (item.fill.endsWith(' ')) {
-    // Top-level command selected — show sub-options or let user type more
-    showPalette();
-  } else {
-    // Concrete sub-option selected — execute
-    hidePalette();
-    sendBtn.click();
-  }
 }
 
 // ─── Slash Command Handlers ───────────────────────────────────────────
 
-/** Handle a client-side command. Returns a remaining prompt to send, or undefined. */
 function handleClientCommand(command: string, arg: string): string | undefined {
+  const session = getActiveSession();
   switch (command) {
     case '/theme':
       applyTheme(arg || 'auto');
-      conversation.addSystemMessage(`Theme set to ${arg || 'auto'}`);
+      session?.conversation.addSystemMessage(`Theme set to ${arg || 'auto'}`);
       return undefined;
     case '/yolo': {
       const on = arg === '' || arg === 'on';
       yoloMode = on;
       localStorage.setItem('uplink-yolo', String(yoloMode));
-      conversation.addSystemMessage(`Auto-approve ${yoloMode ? 'enabled' : 'disabled'}`);
+      session?.conversation.addSystemMessage(`Auto-approve ${yoloMode ? 'enabled' : 'disabled'}`);
       return undefined;
     }
     case '/session':
@@ -416,87 +716,154 @@ function handleClientCommand(command: string, arg: string): string | undefined {
       return undefined;
     case '/agent':
       applyMode('chat');
-      conversation.addSystemMessage('Switched to agent mode');
+      session?.conversation.addSystemMessage('Switched to agent mode');
       return arg || undefined;
     case '/plan':
       applyMode('plan');
-      conversation.addSystemMessage('Switched to plan mode');
+      session?.conversation.addSystemMessage('Switched to plan mode');
       return arg || undefined;
     case '/autopilot':
       applyMode('autopilot');
-      conversation.addSystemMessage('Switched to autopilot mode');
+      session?.conversation.addSystemMessage('Switched to autopilot mode');
       return arg || undefined;
   }
   return undefined;
 }
 
 async function handleSessionCommand(arg: string): Promise<void> {
-  if (!client || !clientCwd) return;
+  const session = getActiveSession();
+  if (!session) return;
 
   if (arg === 'create' || arg === 'new') {
-    clearConversation();
-    localStorage.removeItem('uplink-resume-session');
-    client.disconnect();
-    try {
-      client = await initializeClient();
-      client.connect().catch(console.error);
-    } catch (err) {
-      console.error('Failed to create new session:', err);
-    }
+    if (sessions.size >= MAX_CHAT_TABS) return;
+    const newSession = await createSession(serverCwd);
+    switchTab(newSession.slotId);
     return;
   }
 
   if (arg.startsWith('rename ')) {
     const name = arg.slice(7).trim();
-    if (!name || !client.currentSessionId) return;
+    if (!name || !session.client.currentSessionId) return;
     try {
-      await client.sendRawRequest('uplink/rename_session', {
-        sessionId: client.currentSessionId,
+      await session.client.sendRawRequest('uplink/rename_session', {
+        sessionId: session.client.currentSessionId,
         summary: name,
       });
-      conversation.addSystemMessage(`Session renamed to "${name}"`);
+      session.conversation.addSystemMessage(`Session renamed to "${name}"`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      conversation.addSystemMessage(`Failed to rename: ${msg}`);
+      session.conversation.addSystemMessage(`Failed to rename: ${msg}`);
     }
     return;
   }
 
   if (arg === 'list' || arg === '') {
-    const sessions = await fetchSessions(clientCwd);
-    openSessionsModal(
-      sessions,
-      client.supportsLoadSession,
-      async (sessionId) => {
-        clearConversation();
-        try {
-          await client!.loadSession(sessionId);
-        } catch (err) {
-          console.error('Failed to load session:', err);
-        }
-      },
-      async () => {
-        clearConversation();
-        localStorage.removeItem('uplink-resume-session');
-        client!.disconnect();
-        try {
-          client = await initializeClient();
-          client.connect().catch(console.error);
-        } catch (err) {
-          console.error('Failed to create new session:', err);
-        }
-      },
-    );
+    showActiveSessionsModal();
   }
 }
 
-// ─── Connect ──────────────────────────────────────────────────────────
+// ─── Initialize ───────────────────────────────────────────────────────
 
-updateConnectionStatus('disconnected');
+/** Reconnect to an existing server-side slot (no POST, just wire up client-side). */
+function reconnectToSlot(slotId: string, cwd: string, savedMessages: Array<{ role: string; content: string; timestamp: number }>): ChatSession {
+  const client = createClientForSlot(slotId, cwd);
+  const conversation = new Conversation();
+  const panel = createChatPanel(slotId);
 
-initializeClient().then((c) => {
-  client = c;
-  client.connect();
-}).catch((err) => {
-  console.error('Failed to initialize client:', err);
+  // Restore saved messages into the conversation
+  for (const msg of savedMessages) {
+    if (msg.role === 'user') {
+      conversation.messages.push({ role: 'user', content: msg.content, timestamp: msg.timestamp });
+    } else if (msg.role === 'agent') {
+      conversation.messages.push({ role: 'agent', content: msg.content, timestamp: msg.timestamp });
+    } else {
+      conversation.messages.push({ role: 'system', content: msg.content, timestamp: msg.timestamp });
+    }
+    conversation.timeline.push({ type: 'message', index: conversation.messages.length - 1 });
+  }
+
+  conversation.onChange(() => {
+    if (activeTab === slotId) renderChat(slotId);
+    saveConversation(slotId);
+  });
+
+  const session: ChatSession = { slotId, cwd, client, conversation, panel };
+  sessions.set(slotId, session);
+
+  addTabButton(slotId, cwd);
+  client.connect().catch(console.error);
+
+  // Render restored messages
+  renderChat(slotId);
+
+  return session;
+}
+
+async function restoreSessions(): Promise<void> {
+  let saved: SavedSession[];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_SESSIONS);
+    saved = raw ? JSON.parse(raw) : [];
+  } catch {
+    saved = [];
+  }
+  if (saved.length === 0) {
+    console.log('[restore] No saved sessions in localStorage');
+    return;
+  }
+
+  console.log(`[restore] Found ${saved.length} saved session(s) in localStorage:`, saved.map(s => s.slotId));
+
+  // Check which slots are still alive on the server
+  let serverSlots: Array<{ slotId: string; cwd: string }>;
+  try {
+    const res = await fetch('/api/sessions/active');
+    const data = await res.json();
+    serverSlots = data.sessions ?? [];
+  } catch {
+    console.warn('[restore] Failed to fetch active sessions from server');
+    return;
+  }
+
+  const aliveIds = new Set(serverSlots.map(s => s.slotId));
+  console.log(`[restore] Server has ${serverSlots.length} alive slot(s):`, [...aliveIds]);
+
+  for (const s of saved) {
+    if (aliveIds.has(s.slotId) && sessions.size < MAX_CHAT_TABS) {
+      const msgs = loadSavedMessages(s.slotId);
+      console.log(`[restore] Reconnecting to slot ${s.slotId} (${s.cwd}) with ${msgs.length} saved messages`);
+      reconnectToSlot(s.slotId, s.cwd, msgs);
+    } else {
+      console.log(`[restore] Slot ${s.slotId} no longer alive on server — discarding`);
+      clearSavedMessages(s.slotId);
+    }
+  }
+
+  // Update saved state to only include restored sessions
+  saveSessionState();
+}
+
+async function initialize(): Promise<void> {
+  const tokenResponse = await fetch('/api/token');
+  const { token, cwd } = await tokenResponse.json();
+  sessionToken = token;
+  serverCwd = cwd;
+
+  terminalWsUrl = `${wsProtocol}//${location.host}/ws/terminal?token=${encodeURIComponent(token)}`;
+  renderTerminal();
+
+  // Restore previous sessions if they're still alive on the server
+  await restoreSessions();
+
+  // Restore active tab or default to terminal
+  const savedTab = localStorage.getItem(STORAGE_KEY_ACTIVE_TAB);
+  if (savedTab && savedTab !== 'terminal' && sessions.has(savedTab)) {
+    switchTab(savedTab);
+  } else {
+    switchTab('terminal');
+  }
+}
+
+initialize().catch((err) => {
+  console.error('Failed to initialize:', err);
 });
