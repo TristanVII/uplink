@@ -257,8 +257,8 @@ export function startServer(options: ServerOptions): ServerResult {
       res.status(500).json({ error: 'Cannot determine terminal PID' });
       return;
     }
-    // Use lsof to get the cwd of the shell process
-    exec(`lsof -p ${pid} -Fn 2>/dev/null | grep '^n/' | grep 'cwd' || lsof -d cwd -p ${pid} -Fn 2>/dev/null | tail -1 | sed 's/^n//'`, { timeout: 5000 }, (err, stdout) => {
+    // Use lsof to get the cwd of the shell process (macOS)
+    exec(`lsof -a -d cwd -p ${pid} -Fn 2>/dev/null | grep '^n' | head -1 | sed 's/^n//'`, { timeout: 5000 }, (err, stdout) => {
       if (err || !stdout.trim()) {
         // Fallback: try /proc on Linux
         exec(`readlink -f /proc/${pid}/cwd 2>/dev/null`, { timeout: 5000 }, (err2, stdout2) => {
