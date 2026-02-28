@@ -422,7 +422,7 @@ describe('ACP bridge full-flow integration', () => {
   );
 
   it(
-    'reuses bridge on reconnect and resumes the same session',
+    'reuses bridge on reconnect — session/load returns "already loaded" which is fine',
     async () => {
       // First connection — cold start
       const ws1 = await connectWS();
@@ -433,7 +433,7 @@ describe('ACP bridge full-flow integration', () => {
       );
       expect(initResult1.protocolVersion).toBe(1);
 
-      const sessionResult = await rpcRequest<{ sessionId: string; models?: unknown }>(ws1, 'session/new', {
+      const sessionResult = await rpcRequest<{ sessionId: string }>(ws1, 'session/new', {
         cwd: process.cwd(),
         mcpServers: [],
       });
@@ -453,19 +453,16 @@ describe('ACP bridge full-flow integration', () => {
       expect(initResult2.protocolVersion).toBe(initResult1.protocolVersion);
       expect(initResult2.agentInfo?.name).toBe(initResult1.agentInfo?.name);
 
-      // Session load should succeed — server intercepts for the active session
-      const loadResult = await rpcRequest<{ sessionId: string; models?: { availableModels: unknown[] } }>(
-        ws2, 'session/load', {
+      // Session/load returns "already loaded" error — session is still active
+      await expect(
+        rpcRequest(ws2, 'session/load', {
           sessionId,
           cwd: process.cwd(),
           mcpServers: [],
-        },
-      );
-      // Same session resumed, with models included
-      expect(loadResult.sessionId).toBe(sessionId);
-      expect(loadResult.models?.availableModels).toBeDefined();
+        }),
+      ).rejects.toThrow('already loaded');
 
-      // Prompt should work on the resumed session
+      // Prompt should still work on the session — it's alive in the bridge
       const { requestId, promise } = promptWithCollection(ws2, sessionId, 'simple after reconnect');
       const messages = await promise;
       expectStopReason(messages, requestId, 'end_turn');

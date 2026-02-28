@@ -145,7 +145,6 @@ export function startServer(options: ServerOptions): ServerResult {
   let activeBridge: Bridge | null = null;
   let activeSocket: WebSocket | null = null;
   let cachedInitializeResponse: string | null = null;
-  let cachedSessionResult: { sessionId: string; models?: unknown; modes?: unknown } | null = null;
 
   // Resolve bridge command and args once (same for all connections)
   let bridgeCommand: string;
@@ -179,7 +178,6 @@ export function startServer(options: ServerOptions): ServerResult {
 
     // Clean up dead bridge state
     cachedInitializeResponse = null;
-    cachedSessionResult = null;
 
     console.log(`Spawning bridge: ${bridgeOptions.command} ${bridgeOptions.args.join(' ')}`);
     const spawnStart = Date.now();
@@ -198,7 +196,6 @@ export function startServer(options: ServerOptions): ServerResult {
       if (activeBridge === bridge) {
         activeBridge = null;
         cachedInitializeResponse = null;
-        cachedSessionResult = null;
       }
     });
 
@@ -243,11 +240,10 @@ export function startServer(options: ServerOptions): ServerResult {
     const pendingInitializeIds = new Set<number | string>();
     const pendingSessionNewIds = new Set<number | string>();
 
-    // Bridge -> WebSocket (intercept initialize and session/new responses)
+    // Bridge -> WebSocket (intercept responses for caching/recording)
     bridge.onMessage((line) => {
       if (ws.readyState !== WebSocket.OPEN) return;
 
-      // Check if this is a response we need to intercept
       if (pendingInitializeIds.size > 0 || pendingSessionNewIds.size > 0) {
         try {
           const msg = JSON.parse(line);
@@ -258,7 +254,6 @@ export function startServer(options: ServerOptions): ServerResult {
             }
             if (pendingSessionNewIds.has(msg.id) && msg.result?.sessionId) {
               pendingSessionNewIds.delete(msg.id);
-              cachedSessionResult = msg.result;
               recordSession(resolvedCwd, msg.result.sessionId);
             }
           }
@@ -306,17 +301,7 @@ export function startServer(options: ServerOptions): ServerResult {
         pendingInitializeIds.add(parsed.id);
       }
 
-      // Intercept session/load for the active session — return cached result
-      // without forwarding to bridge (real copilot returns "already loaded" error)
-      if (parsed?.method === 'session/load' && parsed.id != null) {
-        if (cachedSessionResult && parsed.params?.sessionId === cachedSessionResult.sessionId) {
-          console.debug('[timing] session/load: cached (0ms)');
-          ws.send(JSON.stringify({ jsonrpc: '2.0', id: parsed.id, result: cachedSessionResult }));
-          return;
-        }
-      }
-
-      // Track session/new requests to cache the full result
+      // Track session/new requests to record the session for history
       if (parsed?.method === 'session/new' && parsed.id != null) {
         pendingSessionNewIds.add(parsed.id);
       }

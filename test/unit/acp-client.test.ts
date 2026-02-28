@@ -177,7 +177,7 @@ describe('AcpClient Bug Fixes', () => {
     });
   });
 
-  describe('Session resume via localStorage', () => {
+   describe('Session resume via localStorage', () => {
     it('should call session/load when uplink-resume-session is set and agent supports it', async () => {
       // Mock localStorage to return a resume session ID
       (global.localStorage.getItem as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
@@ -207,7 +207,47 @@ describe('AcpClient Bug Fixes', () => {
       expect(global.localStorage.removeItem).not.toHaveBeenCalledWith('uplink-resume-session');
     });
 
-    it('should fall back to session/new when session/load fails', async () => {
+    it('should treat "already loaded" error as successful resume', async () => {
+      const modelsCallback = vi.fn();
+      const cachedModels = JSON.stringify({
+        availableModels: [{ modelId: 'cached-model' }],
+        currentModelId: 'cached-model',
+      });
+      (global.localStorage.getItem as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+        if (key === 'uplink-resume-session') return 'sess-already-loaded';
+        if (key === 'uplink-cached-models') return cachedModels;
+        return null;
+      });
+
+      // Create client with onModelsAvailable callback
+      const clientWithModels = new AcpClient({
+        url: 'ws://test',
+        cwd: '/test',
+        onModelsAvailable: modelsCallback,
+      });
+      const spy = vi.spyOn(clientWithModels as any, 'sendRequest');
+      spy.mockResolvedValueOnce({ agentCapabilities: { loadSession: true } });
+      // session/load fails with "already loaded"
+      spy.mockRejectedValueOnce(new Error('Session sess-already-loaded is already loaded'));
+
+      clientWithModels.connect();
+      const ws2 = (clientWithModels as any).ws;
+      const openCb = ws2.addEventListener.mock.calls.find((c: any) => c[0] === 'open')?.[1];
+      openCb();
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      const calls = spy.mock.calls.map((c: any) => c[0]);
+      expect(calls).not.toContain('session/new');
+      expect(clientWithModels.currentSessionId).toBe('sess-already-loaded');
+      // Models restored from localStorage cache
+      expect(modelsCallback).toHaveBeenCalledWith(
+        [{ modelId: 'cached-model' }],
+        'cached-model',
+      );
+    });
+
+    it('should fall back to session/new when session/load fails with non-resume error', async () => {
       (global.localStorage.getItem as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
         if (key === 'uplink-resume-session') return 'sess-broken';
         return null;
@@ -215,7 +255,7 @@ describe('AcpClient Bug Fixes', () => {
 
       const sendRequestSpy = vi.spyOn(client as any, 'sendRequest');
       sendRequestSpy.mockResolvedValueOnce({ agentCapabilities: { loadSession: true } });
-      // session/load fails
+      // session/load fails with a real error (not "already loaded")
       sendRequestSpy.mockRejectedValueOnce(new Error('Session not found'));
       // session/new succeeds
       sendRequestSpy.mockResolvedValueOnce({ sessionId: 'sess-new' });

@@ -276,7 +276,7 @@ export class AcpClient {
     if (resumeId && this.agentCapabilities.loadSession) {
       try {
         const tLoad = performance.now();
-        const loadResult = await this.sendRequest<SessionNewResult>("session/load", {
+        await this.sendRequest<SessionNewResult>("session/load", {
           sessionId: resumeId,
           cwd: this.options.cwd,
           mcpServers: [],
@@ -284,13 +284,17 @@ export class AcpClient {
         console.debug(`[timing] session/load: ${(performance.now() - tLoad).toFixed(0)}ms`);
         console.debug(`[timing] total initializeSession: ${(performance.now() - t0).toFixed(0)}ms`);
         this.sessionId = resumeId;
-
-        if (loadResult?.models?.availableModels) {
-          this.options.onModelsAvailable?.(loadResult.models.availableModels, loadResult.models.currentModelId);
-        }
+        this.restoreCachedModels();
         return;
-      } catch {
-        // Resume failed — clear stale key and fall through to new session
+      } catch (err: unknown) {
+        // "Already loaded" means the session IS active — treat as success
+        if (err instanceof Error && err.message.includes('already loaded')) {
+          console.debug(`[timing] session/load (already loaded): ${(performance.now() - t0).toFixed(0)}ms`);
+          this.sessionId = resumeId;
+          this.restoreCachedModels();
+          return;
+        }
+        // Any other error — clear stale key and fall through to new session
         localStorage.removeItem('uplink-resume-session');
       }
     }
@@ -306,7 +310,22 @@ export class AcpClient {
     localStorage.setItem('uplink-resume-session', result.sessionId);
 
     if (result.models?.availableModels) {
+      localStorage.setItem('uplink-cached-models', JSON.stringify(result.models));
       this.options.onModelsAvailable?.(result.models.availableModels, result.models.currentModelId);
+    }
+  }
+
+  private restoreCachedModels(): void {
+    const cached = localStorage.getItem('uplink-cached-models');
+    if (cached) {
+      try {
+        const models = JSON.parse(cached);
+        if (models?.availableModels) {
+          this.options.onModelsAvailable?.(models.availableModels, models.currentModelId);
+        }
+      } catch {
+        localStorage.removeItem('uplink-cached-models');
+      }
     }
   }
 

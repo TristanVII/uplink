@@ -136,10 +136,8 @@ export interface SessionLoadParams {
 }
 
 /** Result of the `session/load` request.
- * When the server intercepts session/load for the active session,
- * it returns the cached session/new result (sessionId, models, modes).
- * The raw copilot CLI returns {} on success. */
-export type SessionLoadResult = SessionNewResult | Record<string, never> | null;
+ * The copilot CLI returns {} on success, or an error if already loaded. */
+export type SessionLoadResult = Record<string, never> | null;
 
 // ─── session/prompt ───────────────────────────────────────────────────
 
