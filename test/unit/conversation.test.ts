@@ -449,6 +449,47 @@ describe('Conversation', () => {
       expect(conversation.messages).toHaveLength(0);
     });
 
+    it('trims leading newlines from agent message first chunk', () => {
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: '\n\nHello' }
+      });
+
+      expect(conversation.messages).toHaveLength(1);
+      expect(conversation.messages[0].content).toBe('Hello');
+    });
+
+    it('trims leading newlines across multiple initial chunks', () => {
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: '\n' }
+      });
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: '\n' }
+      });
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'Hello' }
+      });
+
+      expect(conversation.messages).toHaveLength(1);
+      expect(conversation.messages[0].content).toBe('Hello');
+    });
+
+    it('preserves newlines in the middle of agent messages', () => {
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'Hello' }
+      });
+      conversation.handleSessionUpdate({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: '\n\nWorld' }
+      });
+
+      expect(conversation.messages[0].content).toBe('Hello\n\nWorld');
+    });
+
     it('clear() resets everything', () => {
       conversation.addUserMessage('user');
       conversation.handleSessionUpdate({

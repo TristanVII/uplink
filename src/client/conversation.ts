@@ -248,11 +248,16 @@ export class Conversation {
   private appendAgentText(text: string): void {
     const last = this.messages[this.messages.length - 1];
     if (last?.role === "agent") {
-      last.content += text;
+      // Trim leading whitespace until we have visible content
+      if (!last.content.trim()) {
+        last.content = (last.content + text).trimStart();
+      } else {
+        last.content += text;
+      }
       const msgIndex = this.messages.length - 1;
       this.moveToEnd((e) => e.type === "message" && e.index === msgIndex);
     } else if (text.trim()) {
-      this.messages.push({ role: "agent", content: text, timestamp: Date.now() });
+      this.messages.push({ role: "agent", content: text.trimStart(), timestamp: Date.now() });
       this.timeline.push({ type: "message", index: this.messages.length - 1 });
     }
   }
