@@ -318,15 +318,34 @@ export function startServer(options: ServerOptions): ServerResult {
     console.log(`Client connected to session ${slot.id} (${slot.cwd})`);
     slot.socket = ws;
 
+    // Keepalive ping every 15s to prevent idle timeout (mobile, tunnels)
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+      }
+    }, 15_000);
+
+    // If the bridge died, create a fresh one for this slot
+    if (!slot.bridge.isAlive()) {
+      const { command, args } = getBridgeCommand();
+      const bridgeOptions: BridgeOptions = { command, args, cwd: slot.cwd, env: getBridgeEnv() };
+      slot.bridge = new Bridge(bridgeOptions);
+      console.log(`Respawned bridge for session ${slot.id}`);
+    }
+
     const bridge = slot.bridge;
 
     try {
       bridge.spawn();
     } catch (err) {
-      console.error('Failed to spawn bridge:', err);
-      ws.close(1011, 'Failed to spawn bridge');
-      destroySessionSlot(slot.id);
-      return;
+      // spawn() throws if already spawned — that's fine (existing live bridge)
+      if (!bridge.isAlive()) {
+        console.error('Failed to spawn bridge:', err);
+        ws.close(1011, 'Failed to spawn bridge');
+        clearInterval(pingInterval);
+        destroySessionSlot(slot.id);
+        return;
+      }
     }
 
     // Bridge -> WebSocket (intercept session/new responses)
@@ -359,7 +378,8 @@ export function startServer(options: ServerOptions): ServerResult {
     bridge.onClose((code) => {
       console.log(`Bridge closed with code ${code} (session ${slot.id})`);
       if (ws.readyState === WebSocket.OPEN) {
-        ws.close(1000, 'Bridge closed');
+        // Use 4100 (custom) so client knows bridge died (not a clean close)
+        ws.close(4100, 'Bridge closed');
       }
     });
 
@@ -399,6 +419,7 @@ export function startServer(options: ServerOptions): ServerResult {
 
     ws.on('close', () => {
       console.log(`Client disconnected from session ${slot.id}`);
+      clearInterval(pingInterval);
       if (slot.socket === ws) {
         slot.socket = null;
       }
