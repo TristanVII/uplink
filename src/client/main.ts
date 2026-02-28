@@ -3,42 +3,85 @@ import { Conversation } from './conversation.js';
 import { ChatList } from './ui/chat.js';
 import { TerminalPanel } from './ui/terminal.js';
 import { showPermissionRequest, cancelAllPermissions } from './ui/permission.js';
-import { fetchSessions, openSessionsModal, SessionsModal } from './ui/sessions.js';
+import { openSessionsModal, SessionsModal } from './ui/sessions.js';
 import { CommandPalette, type PaletteItem } from './ui/command-palette.js';
 import { getCompletions, parseSlashCommand, setAvailableModels, findModelName } from './slash-commands.js';
 import { render, h } from 'preact';
 import 'material-symbols/outlined.css';
 
+// ─── Constants ────────────────────────────────────────────────────────
+
+const MAX_CHAT_TABS = 4;
+
 // ─── DOM References ───────────────────────────────────────────────────
 
-const chatArea = document.getElementById('chat-area')!;
 const terminalArea = document.getElementById('terminal-area')!;
-const promptInput = document.getElementById('prompt-input') as HTMLTextAreaElement;
-const sendBtn = document.getElementById('send-btn') as HTMLButtonElement;
-const cancelBtn = document.getElementById('cancel-btn') as HTMLButtonElement;
-const modelLabel = document.getElementById('model-label')!;
-const tabButtons = document.querySelectorAll<HTMLButtonElement>('#tab-bar .tab');
+const chatPanelsContainer = document.getElementById('chat-panels')!;
+const tabBar = document.getElementById('tab-bar')!;
 
 let yoloMode = localStorage.getItem('uplink-yolo') === 'true';
 
-// ─── Tab Switching ────────────────────────────────────────────────────
+// ─── Multi-Tab Session State ──────────────────────────────────────────
 
-let activeTab: 'chat' | 'terminal' = 'chat';
-
-function switchTab(tab: 'chat' | 'terminal'): void {
-  activeTab = tab;
-  tabButtons.forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.tab === tab);
-  });
-  chatArea.hidden = tab !== 'chat';
-  document.getElementById('input-area')!.hidden = tab !== 'chat';
-  terminalArea.hidden = tab !== 'terminal';
-  renderTerminal();
+interface ChatSession {
+  slotId: string;
+  cwd: string;
+  client: AcpClient;
+  conversation: Conversation;
+  panel: HTMLElement;
 }
 
-tabButtons.forEach(btn => {
-  btn.addEventListener('click', () => switchTab(btn.dataset.tab as 'chat' | 'terminal'));
-});
+/** Per-session palette state */
+interface PaletteState {
+  items: PaletteItem[];
+  selectedIndex: number;
+  visible: boolean;
+}
+
+const sessions = new Map<string, ChatSession>();
+const paletteStates = new Map<string, PaletteState>();
+let activeTab: 'terminal' | string = 'terminal'; // 'terminal' or a slotId
+
+function getActiveSession(): ChatSession | null {
+  if (activeTab === 'terminal') return null;
+  return sessions.get(activeTab) ?? null;
+}
+
+// ─── Tab Switching ────────────────────────────────────────────────────
+
+function switchTab(tab: 'terminal' | string): void {
+  activeTab = tab;
+
+  // Update tab button states
+  tabBar.querySelectorAll<HTMLButtonElement>('.tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+
+  // Toggle terminal visibility
+  terminalArea.hidden = tab !== 'terminal';
+
+  // Toggle chat panels
+  for (const [slotId, session] of sessions) {
+    session.panel.hidden = slotId !== tab;
+  }
+
+  renderTerminal();
+
+  // Update connection status
+  const session = getActiveSession();
+  if (session) {
+    updateConnectionStatus(session.client.connectionState);
+  } else {
+    // Terminal tab — show neutral status
+    const el = document.getElementById('connection-status')!;
+    el.textContent = 'Terminal';
+    el.className = 'status-connected';
+  }
+}
+
+// Wire up the static terminal tab button
+tabBar.querySelector<HTMLButtonElement>('[data-tab="terminal"]')!
+  .addEventListener('click', () => switchTab('terminal'));
 
 // ─── Mode ─────────────────────────────────────────────────────────────
 
@@ -81,47 +124,14 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-// ─── UI Components ────────────────────────────────────────────────────
+// ─── Sessions Modal ───────────────────────────────────────────────────
 
-// ─── Multi-Session State ──────────────────────────────────────────────
-
-interface ChatSession {
-  slotId: string;
-  cwd: string;
-  client: AcpClient;
-  conversation: Conversation;
-}
-
-const sessions = new Map<string, ChatSession>();
-let activeSessionId: string | null = null;
-
-function getActiveSession(): ChatSession | null {
-  return activeSessionId ? sessions.get(activeSessionId) ?? null : null;
-}
-
-// Mount all timeline components into a single chatContainer.
-// ChatList renders messages, and child components (tool calls, permissions,
-// plans) are passed as children so they appear inline in the message flow.
-const chatContainer = document.createElement('div');
-chatContainer.className = 'chat-container chat-messages';
-chatArea.appendChild(chatContainer);
-
-function renderChat(): void {
-  const session = getActiveSession();
-  if (session) {
-    render(
-      h(ChatList, { conversation: session.conversation, scrollContainer: chatArea }),
-      chatContainer,
-    );
-  }
-}
-
-// Mount Preact sessions modal on body
 const sessionsModalContainer = document.createElement('div');
 document.body.appendChild(sessionsModalContainer);
 render(h(SessionsModal, {}), sessionsModalContainer);
 
-// Mount terminal panel
+// ─── Terminal Panel ───────────────────────────────────────────────────
+
 let terminalWsUrl = '';
 function renderTerminal(): void {
   render(
@@ -134,25 +144,302 @@ function renderTerminal(): void {
   );
 }
 
-/** Clear all conversation state when session changes. */
-function clearConversation(): void {
-  const session = getActiveSession();
-  if (session) {
-    session.conversation.clear();
-    cancelAllPermissions(session.conversation);
+// ─── Chat Panel DOM Factory ───────────────────────────────────────────
+
+function createChatPanel(slotId: string): HTMLElement {
+  const panel = document.createElement('div');
+  panel.className = 'chat-panel';
+  panel.dataset.slotId = slotId;
+  panel.hidden = true;
+
+  // Scrollable messages area
+  const chatArea = document.createElement('div');
+  chatArea.className = 'chat-area';
+
+  const chatContainer = document.createElement('div');
+  chatContainer.className = 'chat-container chat-messages';
+  chatArea.appendChild(chatContainer);
+
+  // Input footer
+  const inputArea = document.createElement('div');
+  inputArea.className = 'input-area';
+
+  const paletteMount = document.createElement('div');
+  paletteMount.className = 'palette-mount';
+
+  const inputWrapper = document.createElement('div');
+  inputWrapper.className = 'input-wrapper';
+
+  const textarea = document.createElement('textarea');
+  textarea.className = 'prompt-input';
+  textarea.placeholder = 'Ask anything…';
+  textarea.rows = 1;
+
+  const modelLabel = document.createElement('span');
+  modelLabel.className = 'model-label';
+
+  const sendBtn = document.createElement('button');
+  sendBtn.className = 'send-btn';
+  sendBtn.textContent = 'Send';
+  sendBtn.disabled = true;
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'cancel-btn';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.hidden = true;
+
+  inputWrapper.append(textarea, modelLabel);
+  inputArea.append(paletteMount, inputWrapper, sendBtn, cancelBtn);
+  panel.append(chatArea, inputArea);
+  chatPanelsContainer.appendChild(panel);
+
+  // ── Per-panel event wiring ──
+
+  const ps: PaletteState = { items: [], selectedIndex: 0, visible: false };
+  paletteStates.set(slotId, ps);
+
+  function renderPanelPalette(): void {
+    if (!ps.visible || ps.items.length === 0) {
+      render(null, paletteMount);
+      return;
+    }
+    render(
+      h(CommandPalette, {
+        items: ps.items,
+        selectedIndex: ps.selectedIndex,
+        onSelect: (item: PaletteItem) => acceptPanelCompletion(item),
+        onHover: (i: number) => { ps.selectedIndex = i; renderPanelPalette(); },
+      }),
+      paletteMount,
+    );
   }
+
+  function showPanelPalette(): void {
+    ps.items = getCompletions(textarea.value);
+    ps.selectedIndex = 0;
+    ps.visible = ps.items.length > 0;
+    renderPanelPalette();
+  }
+
+  function hidePanelPalette(): void {
+    ps.visible = false;
+    renderPanelPalette();
+  }
+
+  function acceptPanelCompletion(item: PaletteItem): void {
+    textarea.value = item.fill;
+    textarea.focus();
+    updatePanelBorderPreview();
+    if (item.fill.endsWith(' ')) {
+      showPanelPalette();
+    } else {
+      hidePanelPalette();
+      sendBtn.click();
+    }
+  }
+
+  function updatePanelBorderPreview(): void {
+    if (textarea.value.startsWith('!')) {
+      document.documentElement.setAttribute('data-mode', 'shell-input');
+    } else if (textarea.value.startsWith('/')) {
+      const parts = textarea.value.slice(1).split(/\s/, 1);
+      const cmd = parts[0]?.toLowerCase();
+      if (cmd === 'plan' || cmd === 'autopilot') {
+        document.documentElement.setAttribute('data-mode', cmd);
+      } else if (cmd === 'agent') {
+        document.documentElement.setAttribute('data-mode', 'chat');
+      } else {
+        document.documentElement.setAttribute('data-mode', currentMode);
+      }
+    } else {
+      document.documentElement.setAttribute('data-mode', currentMode);
+    }
+  }
+
+  // Auto-resize textarea
+  textarea.addEventListener('input', () => {
+    textarea.style.height = 'auto';
+    const maxH = 150;
+    const scrollH = textarea.scrollHeight;
+    textarea.style.height = Math.min(scrollH, maxH) + 'px';
+    textarea.style.overflowY = scrollH > maxH ? 'auto' : 'hidden';
+    updatePanelBorderPreview();
+    if (textarea.value.startsWith('/')) {
+      showPanelPalette();
+    } else {
+      hidePanelPalette();
+    }
+  });
+
+  // Keyboard handling
+  textarea.addEventListener('keydown', (e) => {
+    if (ps.visible) {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        ps.selectedIndex = Math.max(0, ps.selectedIndex - 1);
+        renderPanelPalette();
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        ps.selectedIndex = Math.min(ps.items.length - 1, ps.selectedIndex + 1);
+        renderPanelPalette();
+        return;
+      }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault();
+        if (ps.items[ps.selectedIndex]) {
+          acceptPanelCompletion(ps.items[ps.selectedIndex]);
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        hidePanelPalette();
+        return;
+      }
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendBtn.click();
+    }
+  });
+
+  // Send
+  sendBtn.addEventListener('click', async () => {
+    const text = textarea.value.trim();
+    const session = sessions.get(slotId);
+    if (!text || !session) return;
+
+    const { client, conversation } = session;
+    textarea.value = '';
+    textarea.style.height = 'auto';
+    hidePanelPalette();
+    document.documentElement.setAttribute('data-mode', currentMode);
+
+    // Shell commands
+    if (text.startsWith('!')) {
+      const command = text.slice(1).trim();
+      if (!command) return;
+      conversation.addUserMessage(`$ ${command}`);
+      try {
+        const result = await client.sendRawRequest<{
+          stdout: string; stderr: string; exitCode: number;
+        }>('uplink/shell', { command });
+        conversation.addShellResult(command, result.stdout, result.stderr, result.exitCode);
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        conversation.addShellResult(command, '', errorMessage, 1);
+      }
+      return;
+    }
+
+    // Slash commands
+    let promptText = text;
+    const parsed = parseSlashCommand(text);
+    if (parsed) {
+      if (parsed.kind === 'client') {
+        const remainingPrompt = handleClientCommand(parsed.command, parsed.arg);
+        if (!remainingPrompt) return;
+        promptText = remainingPrompt;
+      } else if (parsed.command === '/model' && parsed.arg) {
+        const name = findModelName(parsed.arg);
+        if (name) modelLabel.textContent = name;
+      }
+    }
+
+    conversation.addUserMessage(text);
+
+    if (currentMode === 'plan' && !text.startsWith('/')) {
+      promptText = `/plan ${promptText}`;
+    }
+
+    const MAX_AUTOPILOT_TURNS = 25;
+    try {
+      let stopReason = await client.prompt(promptText);
+      let turns = 0;
+      while (currentMode === 'autopilot' && stopReason === 'end_turn' && turns < MAX_AUTOPILOT_TURNS) {
+        turns++;
+        conversation.addUserMessage('continue');
+        stopReason = await client.prompt('continue');
+      }
+      if (turns >= MAX_AUTOPILOT_TURNS) {
+        conversation.addSystemMessage('Autopilot stopped: reached maximum turns');
+      }
+    } catch (err) {
+      console.error('Prompt error:', err);
+    }
+  });
+
+  // Cancel
+  cancelBtn.addEventListener('click', () => {
+    const session = sessions.get(slotId);
+    if (session) {
+      session.client.cancel();
+      cancelAllPermissions(session.conversation);
+    }
+    if (currentMode === 'autopilot') {
+      applyMode('chat');
+      sessions.get(slotId)?.conversation.addSystemMessage('Autopilot cancelled');
+    }
+  });
+
+  return panel;
 }
 
-// ─── WebSocket / ACP Client ──────────────────────────────────────────
+// ─── Chat Rendering ───────────────────────────────────────────────────
+
+function renderChat(slotId: string): void {
+  const session = sessions.get(slotId);
+  if (!session) return;
+  const chatArea = session.panel.querySelector<HTMLElement>('.chat-area')!;
+  const chatContainer = session.panel.querySelector<HTMLElement>('.chat-container')!;
+  render(
+    h(ChatList, { conversation: session.conversation, scrollContainer: chatArea }),
+    chatContainer,
+  );
+}
+
+// ─── Tab Bar Management ───────────────────────────────────────────────
+
+function addTabButton(slotId: string, cwd: string): void {
+  const folderName = cwd.split('/').pop() || cwd;
+
+  const btn = document.createElement('button');
+  btn.className = 'tab';
+  btn.dataset.tab = slotId;
+
+  const label = document.createElement('span');
+  label.textContent = `📁 ${folderName}`;
+  label.title = cwd;
+
+  const closeBtn = document.createElement('span');
+  closeBtn.className = 'tab-close';
+  closeBtn.textContent = '✕';
+  closeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeSession(slotId);
+  });
+
+  btn.append(label, closeBtn);
+  btn.addEventListener('click', () => switchTab(slotId));
+  tabBar.appendChild(btn);
+}
+
+function removeTabButton(slotId: string): void {
+  const btn = tabBar.querySelector<HTMLButtonElement>(`[data-tab="${slotId}"]`);
+  btn?.remove();
+}
+
+// ─── Connection Status ────────────────────────────────────────────────
 
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-
-let sessionToken: string = '';
-let serverCwd: string = '';
+let sessionToken = '';
+let serverCwd = '';
 
 function updateConnectionStatus(state: ConnectionState): void {
   const el = document.getElementById('connection-status')!;
-  // Show "ready" instead of "prompting" since we have the dots indicator
   const displayState = state === 'prompting' ? 'ready' : state;
   el.textContent = displayState;
   el.className = `status-${
@@ -163,18 +450,22 @@ function updateConnectionStatus(state: ConnectionState): void {
         : 'disconnected'
   }`;
 
+  // Update send/cancel buttons for the active session's panel
   const session = getActiveSession();
-  sendBtn.disabled = state !== 'ready';
-  sendBtn.hidden = state === 'prompting';
-  cancelBtn.hidden = state !== 'prompting';
-
   if (session) {
+    const sendBtn = session.panel.querySelector<HTMLButtonElement>('.send-btn')!;
+    const cancelBtn = session.panel.querySelector<HTMLButtonElement>('.cancel-btn')!;
+    sendBtn.disabled = state !== 'ready';
+    sendBtn.hidden = state === 'prompting';
+    cancelBtn.hidden = state !== 'prompting';
+
     session.conversation.isPrompting = state === 'prompting';
     session.conversation.notify();
   }
 }
 
-/** Create a new AcpClient connected to a specific session slot. */
+// ─── ACP Client Factory ──────────────────────────────────────────────
+
 function createClientForSlot(slotId: string, cwd: string): AcpClient {
   const wsUrl = `${wsProtocol}//${location.host}/ws?token=${encodeURIComponent(sessionToken)}&slotId=${encodeURIComponent(slotId)}`;
 
@@ -182,8 +473,7 @@ function createClientForSlot(slotId: string, cwd: string): AcpClient {
     wsUrl,
     cwd,
     onStateChange: (state) => {
-      // Only update UI status if this is the active session
-      if (activeSessionId === slotId) {
+      if (activeTab === slotId) {
         updateConnectionStatus(state);
       }
     },
@@ -191,14 +481,18 @@ function createClientForSlot(slotId: string, cwd: string): AcpClient {
       const s = sessions.get(slotId);
       if (s) {
         s.conversation.handleSessionUpdate(update);
-        if (activeSessionId === slotId) renderChat();
+        if (activeTab === slotId) renderChat(slotId);
       }
     },
     onModelsAvailable: (models, currentModelId) => {
       setAvailableModels(models);
       if (currentModelId) {
-        const model = models.find((m) => m.modelId === currentModelId);
-        modelLabel.textContent = model?.name ?? currentModelId;
+        const session = sessions.get(slotId);
+        if (session) {
+          const model = models.find((m) => m.modelId === currentModelId);
+          const label = session.panel.querySelector<HTMLElement>('.model-label');
+          if (label) label.textContent = model?.name ?? currentModelId;
+        }
       }
     },
     onPermissionRequest: (request, respond) => {
@@ -224,7 +518,8 @@ function createClientForSlot(slotId: string, cwd: string): AcpClient {
   });
 }
 
-/** Create a new session slot on the server and connect a client to it. */
+// ─── Session Lifecycle ────────────────────────────────────────────────
+
 async function createSession(cwd: string): Promise<ChatSession> {
   const res = await fetch('/api/sessions/create', {
     method: 'POST',
@@ -235,48 +530,63 @@ async function createSession(cwd: string): Promise<ChatSession> {
 
   const client = createClientForSlot(slotId, resolvedCwd);
   const conversation = new Conversation();
-  const session: ChatSession = { slotId, cwd: resolvedCwd, client, conversation };
+  const panel = createChatPanel(slotId);
+
+  // Re-render chat on conversation changes
+  conversation.onChange(() => {
+    if (activeTab === slotId) renderChat(slotId);
+  });
+
+  const session: ChatSession = { slotId, cwd: resolvedCwd, client, conversation, panel };
   sessions.set(slotId, session);
 
+  addTabButton(slotId, resolvedCwd);
   client.connect().catch(console.error);
   return session;
 }
 
-/** Switch the active chat to a different session. */
-function switchSession(slotId: string): void {
+async function closeSession(slotId: string): Promise<void> {
   const session = sessions.get(slotId);
   if (!session) return;
 
-  activeSessionId = slotId;
-  renderChat();
-  renderSessionIndicator();
+  // Disconnect client and clean up
+  session.client.disconnect();
+  session.panel.remove();
+  sessions.delete(slotId);
+  paletteStates.delete(slotId);
+  removeTabButton(slotId);
 
-  // Update connection status for the new active session
-  updateConnectionStatus(session.client.connectionState);
-}
+  // Tell the server to destroy the session slot
+  fetch(`/api/sessions/active/${encodeURIComponent(slotId)}`, { method: 'DELETE' }).catch(console.error);
 
-/** Render the active session indicator in the header. */
-function renderSessionIndicator(): void {
-  const session = getActiveSession();
-  let indicator = document.getElementById('session-indicator');
-  if (!indicator) {
-    indicator = document.createElement('span');
-    indicator.id = 'session-indicator';
-    indicator.className = 'session-indicator';
-    indicator.addEventListener('click', () => showActiveSessionsModal());
-    document.getElementById('header')!.insertBefore(
-      indicator,
-      document.getElementById('connection-status'),
-    );
-  }
-  if (session) {
-    const folderName = session.cwd.split('/').pop() || session.cwd;
-    indicator.textContent = `📁 ${folderName}`;
-    indicator.title = session.cwd;
+  // Switch to another tab
+  if (activeTab === slotId) {
+    const remaining = [...sessions.keys()];
+    switchTab(remaining.length > 0 ? remaining[remaining.length - 1] : 'terminal');
   }
 }
 
-/** Show the active sessions modal for switching. */
+// ─── "Start Chat Here" handler ────────────────────────────────────────
+
+async function handleStartChatHere(): Promise<void> {
+  if (sessions.size >= MAX_CHAT_TABS) {
+    console.warn(`Cannot open more than ${MAX_CHAT_TABS} chat tabs`);
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/terminal/cwd');
+    const { cwd } = await res.json();
+    const session = await createSession(cwd);
+    switchTab(session.slotId);
+    session.conversation.addSystemMessage(`Session started in ${cwd}`);
+  } catch (err) {
+    console.error('Failed to start chat:', err);
+  }
+}
+
+// ─── Active Sessions Modal ────────────────────────────────────────────
+
 async function showActiveSessionsModal(): Promise<void> {
   const res = await fetch('/api/sessions/active');
   const { sessions: activeSlots } = await res.json() as { sessions: { slotId: string; cwd: string; connected: boolean }[] };
@@ -284,262 +594,28 @@ async function showActiveSessionsModal(): Promise<void> {
   openSessionsModal(
     activeSlots.map(s => ({
       id: s.slotId,
+      cwd: s.cwd,
       summary: s.cwd.split('/').pop() || s.cwd,
       branch: s.cwd,
+      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     })),
     true,
-    (slotId) => switchSession(slotId),
+    (slotId) => {
+      if (sessions.has(slotId)) {
+        switchTab(slotId);
+      }
+    },
     async () => {
+      if (sessions.size >= MAX_CHAT_TABS) return;
       const session = await createSession(serverCwd);
-      switchSession(session.slotId);
+      switchTab(session.slotId);
     },
   );
 }
 
-/** Handle "Start Chat Here" from terminal. */
-async function handleStartChatHere(): Promise<void> {
-  try {
-    const res = await fetch('/api/terminal/cwd');
-    const { cwd } = await res.json();
-    const session = await createSession(cwd);
-    switchSession(session.slotId);
-    switchTab('chat');
-    session.conversation.addSystemMessage(`Session started in ${cwd}`);
-  } catch (err) {
-    console.error('Failed to start chat:', err);
-  }
-}
-
-async function initializeClient() {
-  const tokenResponse = await fetch('/api/token');
-  const { token, cwd } = await tokenResponse.json();
-  sessionToken = token;
-  serverCwd = cwd;
-
-  terminalWsUrl = `${wsProtocol}//${location.host}/ws/terminal?token=${encodeURIComponent(token)}`;
-  renderTerminal();
-
-  // Create the initial default session
-  const session = await createSession(cwd);
-  switchSession(session.slotId);
-  return session.client;
-}
-
-// ─── Input Handling ───────────────────────────────────────────────────
-
-sendBtn.addEventListener('click', async () => {
-  const text = promptInput.value.trim();
-  const session = getActiveSession();
-  if (!text || !session) return;
-
-  const { client, conversation } = session;
-
-  promptInput.value = '';
-  promptInput.style.height = 'auto';
-  hidePalette();
-  document.documentElement.setAttribute('data-mode', currentMode);
-
-  // Shell commands: !<command>
-  if (text.startsWith('!')) {
-    const command = text.slice(1).trim();
-    if (!command) return;
-
-    conversation.addUserMessage(`$ ${command}`);
-
-    try {
-      const result = await client.sendRawRequest<{
-        stdout: string;
-        stderr: string;
-        exitCode: number;
-      }>('uplink/shell', { command });
-      conversation.addShellResult(command, result.stdout, result.stderr, result.exitCode);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      conversation.addShellResult(command, '', errorMessage, 1);
-    }
-    return;
-  }
-
-  // Slash commands
-  let promptText = text;
-  const parsed = parseSlashCommand(text);
-  if (parsed) {
-    if (parsed.kind === 'client') {
-      const remainingPrompt = handleClientCommand(parsed.command, parsed.arg);
-      if (!remainingPrompt) return;
-      // Mode command with a prompt — send the prompt portion
-      promptText = remainingPrompt;
-    } else if (parsed.command === '/model' && parsed.arg) {
-      const name = findModelName(parsed.arg);
-      if (name) modelLabel.textContent = name;
-    }
-  }
-
-  conversation.addUserMessage(text);
-
-  // In plan mode, prefix the message to instruct the agent to plan
-  if (currentMode === 'plan' && !text.startsWith('/')) {
-    promptText = `/plan ${promptText}`;
-  }
-
-  const MAX_AUTOPILOT_TURNS = 25;
-
-  try {
-    let stopReason = await client.prompt(promptText);
-    // In autopilot mode, auto-continue when the agent ends its turn
-    let turns = 0;
-    while (currentMode === 'autopilot' && stopReason === 'end_turn' && turns < MAX_AUTOPILOT_TURNS) {
-      turns++;
-      conversation.addUserMessage('continue');
-      stopReason = await client.prompt('continue');
-    }
-    if (turns >= MAX_AUTOPILOT_TURNS) {
-      conversation.addSystemMessage('Autopilot stopped: reached maximum turns');
-    }
-  } catch (err) {
-    console.error('Prompt error:', err);
-  }
-});
-
-cancelBtn.addEventListener('click', () => {
-  const session = getActiveSession();
-  if (session) {
-    session.client.cancel();
-    cancelAllPermissions(session.conversation);
-  }
-  // Stop autopilot auto-continue loop by switching back to chat mode
-  if (currentMode === 'autopilot') {
-    applyMode('chat');
-    getActiveSession()?.conversation.addSystemMessage('Autopilot cancelled');
-  }
-});
-
-promptInput.addEventListener('keydown', (e) => {
-  // Palette keyboard navigation
-  if (paletteVisible) {
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      paletteSelectedIndex = Math.max(0, paletteSelectedIndex - 1);
-      renderPalette();
-      return;
-    }
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      paletteSelectedIndex = Math.min(paletteItems.length - 1, paletteSelectedIndex + 1);
-      renderPalette();
-      return;
-    }
-    if (e.key === 'Tab' || e.key === 'Enter') {
-      e.preventDefault();
-      if (paletteItems[paletteSelectedIndex]) {
-        acceptCompletion(paletteItems[paletteSelectedIndex]);
-      }
-      return;
-    }
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      hidePalette();
-      return;
-    }
-  }
-
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendBtn.click();
-  }
-});
-
-/** Update the input border color to preview the mode implied by the current input text. */
-function updateBorderPreview(): void {
-  if (promptInput.value.startsWith('!')) {
-    document.documentElement.setAttribute('data-mode', 'shell-input');
-  } else if (promptInput.value.startsWith('/')) {
-    const parts = promptInput.value.slice(1).split(/\s/, 1);
-    const cmd = parts[0]?.toLowerCase();
-    if (cmd === 'plan' || cmd === 'autopilot') {
-      document.documentElement.setAttribute('data-mode', cmd);
-    } else if (cmd === 'agent') {
-      document.documentElement.setAttribute('data-mode', 'chat');
-    } else {
-      document.documentElement.setAttribute('data-mode', currentMode);
-    }
-  } else {
-    document.documentElement.setAttribute('data-mode', currentMode);
-  }
-}
-
-promptInput.addEventListener('input', () => {
-  promptInput.style.height = 'auto';
-  const maxH = 150;
-  const scrollH = promptInput.scrollHeight;
-  promptInput.style.height = Math.min(scrollH, maxH) + 'px';
-  promptInput.style.overflowY = scrollH > maxH ? 'auto' : 'hidden';
-
-  // Dynamic border preview based on input prefix
-  updateBorderPreview();
-
-  // Show/update command palette when typing /
-  if (promptInput.value.startsWith('/')) {
-    showPalette();
-  } else {
-    hidePalette();
-  }
-});
-
-// ─── Command Palette ──────────────────────────────────────────────────
-
-const paletteMount = document.getElementById('palette-mount')!;
-let paletteItems: PaletteItem[] = [];
-let paletteSelectedIndex = 0;
-let paletteVisible = false;
-
-function renderPalette(): void {
-  if (!paletteVisible || paletteItems.length === 0) {
-    render(null, paletteMount);
-    return;
-  }
-  render(
-    h(CommandPalette, {
-      items: paletteItems,
-      selectedIndex: paletteSelectedIndex,
-      onSelect: (item) => acceptCompletion(item),
-      onHover: (i) => { paletteSelectedIndex = i; renderPalette(); },
-    }),
-    paletteMount,
-  );
-}
-
-function showPalette(): void {
-  const text = promptInput.value;
-  paletteItems = getCompletions(text);
-  paletteSelectedIndex = 0;
-  paletteVisible = paletteItems.length > 0;
-  renderPalette();
-}
-
-function hidePalette(): void {
-  paletteVisible = false;
-  renderPalette();
-}
-
-function acceptCompletion(item: PaletteItem): void {
-  promptInput.value = item.fill;
-  promptInput.focus();
-  updateBorderPreview();
-  if (item.fill.endsWith(' ')) {
-    // Top-level command selected — show sub-options or let user type more
-    showPalette();
-  } else {
-    // Concrete sub-option selected — execute
-    hidePalette();
-    sendBtn.click();
-  }
-}
-
 // ─── Slash Command Handlers ───────────────────────────────────────────
 
-/** Handle a client-side command. Returns a remaining prompt to send, or undefined. */
 function handleClientCommand(command: string, arg: string): string | undefined {
   const session = getActiveSession();
   switch (command) {
@@ -578,8 +654,9 @@ async function handleSessionCommand(arg: string): Promise<void> {
   if (!session) return;
 
   if (arg === 'create' || arg === 'new') {
+    if (sessions.size >= MAX_CHAT_TABS) return;
     const newSession = await createSession(serverCwd);
-    switchSession(newSession.slotId);
+    switchTab(newSession.slotId);
     return;
   }
 
@@ -604,8 +681,21 @@ async function handleSessionCommand(arg: string): Promise<void> {
   }
 }
 
-// ─── Connect ──────────────────────────────────────────────────────────
+// ─── Initialize ───────────────────────────────────────────────────────
 
-initializeClient().catch((err) => {
-  console.error('Failed to initialize client:', err);
+async function initialize(): Promise<void> {
+  const tokenResponse = await fetch('/api/token');
+  const { token, cwd } = await tokenResponse.json();
+  sessionToken = token;
+  serverCwd = cwd;
+
+  terminalWsUrl = `${wsProtocol}//${location.host}/ws/terminal?token=${encodeURIComponent(token)}`;
+  renderTerminal();
+
+  // Start on the terminal tab — no chat session created
+  switchTab('terminal');
+}
+
+initialize().catch((err) => {
+  console.error('Failed to initialize:', err);
 });
