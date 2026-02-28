@@ -233,6 +233,7 @@ export function startServer(options: ServerOptions): ServerResult {
       cwd: s.cwd,
       connected: s.socket !== null && s.socket.readyState === WebSocket.OPEN,
     }));
+    console.log(`[sessions] Active slots queried: ${active.length} (${active.map(s => s.slotId).join(', ') || 'none'})`);
     res.json({ sessions: active });
   });
 
@@ -319,9 +320,14 @@ export function startServer(options: ServerOptions): ServerResult {
     slot.socket = ws;
 
     // Keepalive ping every 15s to prevent idle timeout (mobile, tunnels)
+    let chatPingCount = 0;
     const pingInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.ping();
+        chatPingCount++;
+        if (chatPingCount % 4 === 0) {
+          console.log(`[keepalive] chat ${slot.id}: ${chatPingCount} pings sent`);
+        }
       }
     }, 15_000);
 
@@ -459,9 +465,14 @@ export function startServer(options: ServerOptions): ServerResult {
     activeTerminal = terminal;
 
     // Keepalive ping every 15s to prevent idle timeout (mobile, tunnels)
+    let termPingCount = 0;
     const pingInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.ping();
+        termPingCount++;
+        if (termPingCount % 4 === 0) {
+          console.log(`[keepalive] terminal: ${termPingCount} pings sent`);
+        }
       }
     }, 15_000);
 

@@ -807,7 +807,12 @@ async function restoreSessions(): Promise<void> {
   } catch {
     saved = [];
   }
-  if (saved.length === 0) return;
+  if (saved.length === 0) {
+    console.log('[restore] No saved sessions in localStorage');
+    return;
+  }
+
+  console.log(`[restore] Found ${saved.length} saved session(s) in localStorage:`, saved.map(s => s.slotId));
 
   // Check which slots are still alive on the server
   let serverSlots: Array<{ slotId: string; cwd: string }>;
@@ -816,17 +821,20 @@ async function restoreSessions(): Promise<void> {
     const data = await res.json();
     serverSlots = data.sessions ?? [];
   } catch {
+    console.warn('[restore] Failed to fetch active sessions from server');
     return;
   }
 
   const aliveIds = new Set(serverSlots.map(s => s.slotId));
+  console.log(`[restore] Server has ${serverSlots.length} alive slot(s):`, [...aliveIds]);
 
   for (const s of saved) {
     if (aliveIds.has(s.slotId) && sessions.size < MAX_CHAT_TABS) {
       const msgs = loadSavedMessages(s.slotId);
+      console.log(`[restore] Reconnecting to slot ${s.slotId} (${s.cwd}) with ${msgs.length} saved messages`);
       reconnectToSlot(s.slotId, s.cwd, msgs);
     } else {
-      // Slot gone — clean up saved messages
+      console.log(`[restore] Slot ${s.slotId} no longer alive on server — discarding`);
       clearSavedMessages(s.slotId);
     }
   }
