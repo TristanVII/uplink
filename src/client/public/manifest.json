@@ -2,10 +2,11 @@
   "name": "Copilot Uplink",
   "short_name": "Uplink",
   "description": "Remote control for GitHub Copilot CLI",
+  "id": "/",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0d1117",
-  "theme_color": "#6366f1",
+  "background_color": "#1e1e2e",
+  "theme_color": "#cba6f7",
   "icons": [
     {
       "src": "/icon-192.png",
@@ -20,8 +21,13 @@
     {
       "src": "/icon.svg",
       "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

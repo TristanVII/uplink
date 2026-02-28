@@ -6,7 +6,9 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { startServer } from '../src/server/index.js';
-import { startTunnel, stopTunnel, type TunnelResult } from '../src/server/tunnel.js';
+import { hashCwd, getTunnelInfo, createTunnel, updateTunnelPort, startTunnel, stopTunnel, type TunnelResult } from '../src/server/tunnel.js';
+import { resolvePort } from '../src/server/resolve-port.js';
+import { isPortAvailable } from '../src/server/is-port-available.js';
 
 const require = createRequire(import.meta.url);
 
@@ -35,23 +37,23 @@ const program = new Command()
   .name('uplink')
   .description('Remote control for GitHub Copilot CLI')
   .version(version)
-  .option('--port <n>', 'port for bridge server', '3000')
+  .option('--port <n>', 'port for bridge server (default: random)')
   .option('--tunnel', 'start a devtunnel for remote access')
   .option('--no-tunnel', "don't start a devtunnel")
-  .option('--tunnel-id <name>', 'use a persistent devtunnel')
+  .option('--tunnel-id <name>', 'use a pre-created devtunnel (no auto-setup)')
   .option('--allow-anonymous', 'allow anonymous tunnel access (no GitHub auth)')
   .option('--cwd <path>', 'working directory for Copilot', process.cwd())
   .parse();
 
 const opts = program.opts<{
-  port: string;
+  port?: string;
   tunnel: boolean;
   tunnelId?: string;
   allowAnonymous?: boolean;
   cwd: string;
 }>();
 
-const port = parseInt(opts.port, 10);
+const explicitPort = opts.port != null ? parseInt(opts.port, 10) : undefined;
 const useTunnel = opts.tunnel || !!opts.tunnelId;
 
 function resolveStaticDir(): string {
@@ -60,13 +62,12 @@ function resolveStaticDir(): string {
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
 }
 
-async function listen(server: ReturnType<typeof startServer>['server'], desiredPort: number) {
-  await new Promise<void>((resolvePromise, rejectPromise) => {
+async function listenOrThrow(server: ReturnType<typeof startServer>['server'], desiredPort: number): Promise<void> {
+  return new Promise<void>((resolvePromise, rejectPromise) => {
     const handleError = (error: Error) => {
       server.off('error', handleError);
       rejectPromise(error);
     };
-
     server.once('error', handleError);
     server.listen(desiredPort, () => {
       server.off('error', handleError);
@@ -80,15 +81,32 @@ async function main() {
   console.log();
 
   const staticDir = resolveStaticDir();
-
-  const { server, close } = startServer({
-    port,
-    staticDir,
-    cwd: resolve(opts.cwd),
+  const cwd = resolve(opts.cwd);
+  const { port: desiredPort, tunnelName } = resolvePort({
+    cwd,
+    explicitPort,
+    tunnel: useTunnel,
+    tunnelId: opts.tunnelId,
   });
 
-  await listen(server, port);
+  // Only do EADDRINUSE fallback in auto-tunnel mode (saved port might be stale).
+  // For explicit --port or non-tunnel, let EADDRINUSE crash normally.
+  const canFallback = tunnelName != null && explicitPort == null;
 
+  let listenPort = desiredPort;
+
+  if (canFallback && desiredPort !== 0) {
+    const available = await isPortAvailable(desiredPort);
+    if (!available) {
+      console.log(`  Port ${desiredPort} in use, picking random port...`);
+      listenPort = 0;
+    }
+  }
+
+  const result = startServer({ port: listenPort, staticDir, cwd });
+  await listenOrThrow(result.server, listenPort);
+
+  const { server, close } = result;
   const addr = server.address();
   if (!addr || typeof addr === 'string') {
     throw new Error('Unable to determine server port');
@@ -105,7 +123,21 @@ async function main() {
       console.warn('   Anyone with the URL can control your Copilot session.');
     }
     try {
-      tunnel = await startTunnel({ port: actualPort, tunnelId: opts.tunnelId, allowAnonymous: opts.allowAnonymous });
+      let tunnelId = opts.tunnelId;
+
+      // Auto-persistent tunnel: ensure it exists with the right port
+      if (tunnelName && !tunnelId) {
+        const info = getTunnelInfo(tunnelName);
+        if (!info.exists) {
+          console.log(`  Creating tunnel ${tunnelName}...`);
+          createTunnel(tunnelName, actualPort);
+        } else if (info.port !== actualPort) {
+          updateTunnelPort(tunnelName, info.port ?? 0, actualPort);
+        }
+        tunnelId = tunnelName;
+      }
+
+      tunnel = await startTunnel({ port: actualPort, tunnelId, allowAnonymous: opts.allowAnonymous });
       console.log(`  Tunnel: ${tunnel.url}`);
       console.log();
       console.log('  Scan QR code on your phone to connect:');
