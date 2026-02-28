@@ -21,6 +21,55 @@ const tabBar = document.getElementById('tab-bar')!;
 
 let yoloMode = localStorage.getItem('uplink-yolo') === 'true';
 
+// ─── Session Persistence ──────────────────────────────────────────────
+
+const STORAGE_KEY_SESSIONS = 'uplink-sessions';
+const STORAGE_KEY_ACTIVE_TAB = 'uplink-active-tab';
+const STORAGE_KEY_MESSAGES_PREFIX = 'uplink-messages-';
+
+interface SavedSession {
+  slotId: string;
+  cwd: string;
+}
+
+function saveSessionState(): void {
+  const saved: SavedSession[] = [...sessions.values()].map(s => ({
+    slotId: s.slotId,
+    cwd: s.cwd,
+  }));
+  localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(saved));
+  localStorage.setItem(STORAGE_KEY_ACTIVE_TAB, activeTab);
+}
+
+function saveConversation(slotId: string): void {
+  const session = sessions.get(slotId);
+  if (!session) return;
+  // Save only text messages (user/agent/system) — tool calls and permissions are transient
+  const msgs = session.conversation.messages.map(m => ({
+    role: m.role,
+    content: m.content,
+    timestamp: m.timestamp,
+  }));
+  try {
+    localStorage.setItem(STORAGE_KEY_MESSAGES_PREFIX + slotId, JSON.stringify(msgs));
+  } catch {
+    // localStorage full — silently ignore
+  }
+}
+
+function loadSavedMessages(slotId: string): Array<{ role: string; content: string; timestamp: number }> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_MESSAGES_PREFIX + slotId);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function clearSavedMessages(slotId: string): void {
+  localStorage.removeItem(STORAGE_KEY_MESSAGES_PREFIX + slotId);
+}
+
 // ─── Multi-Tab Session State ──────────────────────────────────────────
 
 interface ChatSession {
@@ -51,6 +100,7 @@ function getActiveSession(): ChatSession | null {
 
 function switchTab(tab: 'terminal' | string): void {
   activeTab = tab;
+  localStorage.setItem(STORAGE_KEY_ACTIVE_TAB, tab);
 
   // Update tab button states
   tabBar.querySelectorAll<HTMLButtonElement>('.tab').forEach(btn => {
@@ -559,13 +609,15 @@ async function createSession(cwd: string): Promise<ChatSession> {
   const conversation = new Conversation();
   const panel = createChatPanel(slotId);
 
-  // Re-render chat on conversation changes
+  // Re-render chat on conversation changes and persist messages
   conversation.onChange(() => {
     if (activeTab === slotId) renderChat(slotId);
+    saveConversation(slotId);
   });
 
   const session: ChatSession = { slotId, cwd: resolvedCwd, client, conversation, panel };
   sessions.set(slotId, session);
+  saveSessionState();
 
   addTabButton(slotId, resolvedCwd);
   client.connect().catch(console.error);
@@ -582,6 +634,8 @@ async function closeSession(slotId: string): Promise<void> {
   sessions.delete(slotId);
   paletteStates.delete(slotId);
   removeTabButton(slotId);
+  clearSavedMessages(slotId);
+  saveSessionState();
 
   // Tell the server to destroy the session slot
   fetch(`/api/sessions/active/${encodeURIComponent(slotId)}`, { method: 'DELETE' }).catch(console.error);
@@ -710,6 +764,77 @@ async function handleSessionCommand(arg: string): Promise<void> {
 
 // ─── Initialize ───────────────────────────────────────────────────────
 
+/** Reconnect to an existing server-side slot (no POST, just wire up client-side). */
+function reconnectToSlot(slotId: string, cwd: string, savedMessages: Array<{ role: string; content: string; timestamp: number }>): ChatSession {
+  const client = createClientForSlot(slotId, cwd);
+  const conversation = new Conversation();
+  const panel = createChatPanel(slotId);
+
+  // Restore saved messages into the conversation
+  for (const msg of savedMessages) {
+    if (msg.role === 'user') {
+      conversation.messages.push({ role: 'user', content: msg.content, timestamp: msg.timestamp });
+    } else if (msg.role === 'agent') {
+      conversation.messages.push({ role: 'agent', content: msg.content, timestamp: msg.timestamp });
+    } else {
+      conversation.messages.push({ role: 'system', content: msg.content, timestamp: msg.timestamp });
+    }
+    conversation.timeline.push({ type: 'message', index: conversation.messages.length - 1 });
+  }
+
+  conversation.onChange(() => {
+    if (activeTab === slotId) renderChat(slotId);
+    saveConversation(slotId);
+  });
+
+  const session: ChatSession = { slotId, cwd, client, conversation, panel };
+  sessions.set(slotId, session);
+
+  addTabButton(slotId, cwd);
+  client.connect().catch(console.error);
+
+  // Render restored messages
+  renderChat(slotId);
+
+  return session;
+}
+
+async function restoreSessions(): Promise<void> {
+  let saved: SavedSession[];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_SESSIONS);
+    saved = raw ? JSON.parse(raw) : [];
+  } catch {
+    saved = [];
+  }
+  if (saved.length === 0) return;
+
+  // Check which slots are still alive on the server
+  let serverSlots: Array<{ slotId: string; cwd: string }>;
+  try {
+    const res = await fetch('/api/sessions/active');
+    const data = await res.json();
+    serverSlots = data.sessions ?? [];
+  } catch {
+    return;
+  }
+
+  const aliveIds = new Set(serverSlots.map(s => s.slotId));
+
+  for (const s of saved) {
+    if (aliveIds.has(s.slotId) && sessions.size < MAX_CHAT_TABS) {
+      const msgs = loadSavedMessages(s.slotId);
+      reconnectToSlot(s.slotId, s.cwd, msgs);
+    } else {
+      // Slot gone — clean up saved messages
+      clearSavedMessages(s.slotId);
+    }
+  }
+
+  // Update saved state to only include restored sessions
+  saveSessionState();
+}
+
 async function initialize(): Promise<void> {
   const tokenResponse = await fetch('/api/token');
   const { token, cwd } = await tokenResponse.json();
@@ -719,8 +844,16 @@ async function initialize(): Promise<void> {
   terminalWsUrl = `${wsProtocol}//${location.host}/ws/terminal?token=${encodeURIComponent(token)}`;
   renderTerminal();
 
-  // Start on the terminal tab — no chat session created
-  switchTab('terminal');
+  // Restore previous sessions if they're still alive on the server
+  await restoreSessions();
+
+  // Restore active tab or default to terminal
+  const savedTab = localStorage.getItem(STORAGE_KEY_ACTIVE_TAB);
+  if (savedTab && savedTab !== 'terminal' && sessions.has(savedTab)) {
+    switchTab(savedTab);
+  } else {
+    switchTab('terminal');
+  }
 }
 
 initialize().catch((err) => {
