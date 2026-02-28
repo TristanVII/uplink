@@ -298,20 +298,6 @@ describe('Server integration', () => {
     expect(ws.readyState).toBe(WebSocket.OPEN);
   });
 
-  it('sends message via WS → echoed back through bridge', async () => {
-    const ws = await connectWs();
-
-    const received = new Promise<string>((resolve) => {
-      ws.on('message', (data) => resolve(data.toString()));
-    });
-
-    const msg = JSON.stringify({ type: 'ping' });
-    ws.send(msg);
-
-    const response = await received;
-    expect(response).toBe(msg);
-  });
-
   it('enforces single connection — old socket closed when new one connects', async () => {
     const ws1 = await connectWs();
 

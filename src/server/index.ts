@@ -312,12 +312,6 @@ export function startServer(options: ServerOptions): ServerResult {
       // connected before bridge responded to the eager initialize)
       if (handleEagerInitResponse(line)) return;
 
-      // Filter out any echo of the eager init request (e.g. from echo bridges)
-      try {
-        const parsed = JSON.parse(line);
-        if (parsed.id === EAGER_INIT_ID) return;
-      } catch { /* not JSON, continue */ }
-
       if (ws.readyState !== WebSocket.OPEN) return;
 
       if (pendingSessionNewIds.size > 0) {
