@@ -312,19 +312,12 @@ describe('Server integration', () => {
     expect(response).toBe(msg);
   });
 
-  it('enforces single connection — old socket closed when new one connects', async () => {
+  it('allows multiple simultaneous connections to different session slots', async () => {
     const ws1 = await connectWs();
-
-    const ws1Closed = new Promise<void>((resolve) => {
-      ws1.on('close', () => resolve());
-    });
-
-    // Connect a second client
     const ws2 = await connectWs();
 
-    // First socket should be closed
-    await ws1Closed;
-    expect(ws1.readyState).toBe(WebSocket.CLOSED);
+    // Both sockets should remain open (each gets its own session slot)
+    expect(ws1.readyState).toBe(WebSocket.OPEN);
     expect(ws2.readyState).toBe(WebSocket.OPEN);
   });
 
