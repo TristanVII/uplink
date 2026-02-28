@@ -397,12 +397,19 @@ pre code {
   box-shadow: 0 0 0 3px var(--accent-subtle);
 }
 
+/* Model label tab follows input accent border when focused */
+#prompt-input:focus + #model-label {
+  border-color: var(--accent);
+  border-bottom-color: var(--bg-primary);
+}
+
 /* Mode indicator: colored border on the input box and model label tab */
 [data-mode="plan"] #prompt-input {
   border-color: var(--info);
 }
 
-[data-mode="plan"] #model-label {
+[data-mode="plan"] #model-label,
+[data-mode="plan"] #prompt-input:focus + #model-label {
   border-color: var(--info);
   border-bottom-color: var(--bg-primary);
 }
@@ -416,7 +423,8 @@ pre code {
   border-color: var(--success);
 }
 
-[data-mode="autopilot"] #model-label {
+[data-mode="autopilot"] #model-label,
+[data-mode="autopilot"] #prompt-input:focus + #model-label {
   border-color: var(--success);
   border-bottom-color: var(--bg-primary);
 }
@@ -430,7 +438,8 @@ pre code {
   border-color: var(--peach);
 }
 
-[data-mode="shell-input"] #model-label {
+[data-mode="shell-input"] #model-label,
+[data-mode="shell-input"] #prompt-input:focus + #model-label {
   border-color: var(--peach);
   border-bottom-color: var(--bg-primary);
 }
