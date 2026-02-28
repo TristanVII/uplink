@@ -239,9 +239,11 @@ export class AcpClient {
   private handleOpen(callbacks?: StartCallbacks): void {
     this.clearReconnectTimer();
     this.setState("initializing");
+    const wsOpenTime = performance.now();
 
     this.initializeSession()
       .then(() => {
+        console.log(`[timing] WS open → ready: ${(performance.now() - wsOpenTime).toFixed(0)}ms`);
         this.reconnectAttempts = 0;
         this.setState("ready");
         callbacks?.onReady?.();
@@ -258,11 +260,14 @@ export class AcpClient {
   }
 
   private async initializeSession(): Promise<void> {
+    const t0 = performance.now();
+
     const initResult = await this.sendRequest<InitializeResult>("initialize", {
       protocolVersion: PROTOCOL_VERSION,
       clientCapabilities: CLIENT_CAPABILITIES,
       clientInfo: CLIENT_INFO,
     });
+    console.log(`[timing] initialize: ${(performance.now() - t0).toFixed(0)}ms`);
 
     this.agentCapabilities = initResult.agentCapabilities ?? {};
 
@@ -274,11 +279,14 @@ export class AcpClient {
 
       if (this.agentCapabilities.loadSession) {
         try {
+          const tLoad = performance.now();
           await this.sendRequest("session/load", {
             sessionId: resumeId,
             cwd: this.options.cwd,
             mcpServers: [],
           });
+          console.log(`[timing] session/load: ${(performance.now() - tLoad).toFixed(0)}ms`);
+          console.log(`[timing] total initializeSession: ${(performance.now() - t0).toFixed(0)}ms`);
           this.sessionId = resumeId;
           return;
         } catch {
@@ -287,10 +295,13 @@ export class AcpClient {
       }
     }
 
+    const tNew = performance.now();
     const result = await this.sendRequest<SessionNewResult>(
       "session/new",
       { cwd: this.options.cwd, mcpServers: [] },
     );
+    console.log(`[timing] session/new: ${(performance.now() - tNew).toFixed(0)}ms`);
+    console.log(`[timing] total initializeSession: ${(performance.now() - t0).toFixed(0)}ms`);
     this.sessionId = result.sessionId;
     localStorage.setItem('uplink-resume-session', result.sessionId);
 

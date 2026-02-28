@@ -197,11 +197,13 @@ export function startServer(options: ServerOptions): ServerResult {
 
     console.log(`Spawning bridge: ${bridgeOptions.command} ${bridgeOptions.args.join(' ')}`);
 
+    const spawnStart = Date.now();
     let bridge = new Bridge(bridgeOptions);
     activeBridge = bridge;
 
     try {
       bridge.spawn();
+      console.log(`[timing] bridge spawn: ${Date.now() - spawnStart}ms`);
     } catch (err) {
       console.error('Failed to spawn bridge:', err);
       ws.close(1011, 'Failed to spawn bridge');
