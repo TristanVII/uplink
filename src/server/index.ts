@@ -128,19 +128,6 @@ export function startServer(options: ServerOptions): ServerResult {
     const sessions = await getRecentSessions(cwd, limit);
     res.json({ sessions });
   });
-  
-  // Serve static files if configured
-  if (options.staticDir) {
-    app.use(express.static(options.staticDir));
-    // SPA fallback: serve index.html for unknown routes
-    app.get('*', (req, res) => {
-      if (options.staticDir) {
-        res.sendFile(path.join(options.staticDir, 'index.html'));
-      } else {
-        res.status(404).send('Not found');
-      }
-    });
-  }
 
   const server = createServer(app);
   const wss = new WebSocketServer({ noServer: true });
@@ -287,6 +274,19 @@ export function startServer(options: ServerOptions): ServerResult {
       res.json({ cwd: cwd || resolvedCwd });
     });
   });
+
+  // Serve static files if configured (must be after all API routes)
+  if (options.staticDir) {
+    app.use(express.static(options.staticDir));
+    // SPA fallback: serve index.html for unknown routes
+    app.get('*', (req, res) => {
+      if (options.staticDir) {
+        res.sendFile(path.join(options.staticDir, 'index.html'));
+      } else {
+        res.status(404).send('Not found');
+      }
+    });
+  }
 
   wss.on('connection', (ws, request) => {
     // Validate session token
