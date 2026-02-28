@@ -122,6 +122,20 @@ export class AcpClient {
     localStorage.setItem('uplink-resume-session', sessionId);
   }
 
+  async newSession(): Promise<void> {
+    this.ensureReadyState();
+    const result = await this.sendRequest<SessionNewResult>(
+      "session/new",
+      { cwd: this.options.cwd, mcpServers: [] },
+    );
+    this.sessionId = result.sessionId;
+    localStorage.setItem('uplink-resume-session', result.sessionId);
+    if (result.models?.availableModels) {
+      localStorage.setItem('uplink-cached-models', JSON.stringify(result.models));
+      this.options.onModelsAvailable?.(result.models.availableModels, result.models.currentModelId);
+    }
+  }
+
   async prompt(text: string): Promise<StopReason> {
     this.ensureReadyState();
     if (!this.sessionId) {

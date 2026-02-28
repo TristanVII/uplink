@@ -402,11 +402,8 @@ async function handleSessionCommand(arg: string): Promise<void> {
 
   if (arg === 'create' || arg === 'new') {
     clearConversation();
-    localStorage.removeItem('uplink-resume-session');
-    client.disconnect();
     try {
-      client = await initializeClient();
-      client.connect().catch(console.error);
+      await client.newSession();
     } catch (err) {
       console.error('Failed to create new session:', err);
     }
@@ -444,11 +441,8 @@ async function handleSessionCommand(arg: string): Promise<void> {
       },
       async () => {
         clearConversation();
-        localStorage.removeItem('uplink-resume-session');
-        client!.disconnect();
         try {
-          client = await initializeClient();
-          client.connect().catch(console.error);
+          await client!.newSession();
         } catch (err) {
           console.error('Failed to create new session:', err);
         }
