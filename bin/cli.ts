@@ -88,16 +88,18 @@ async function listenOrThrow(server: ReturnType<typeof startServer>['server'], d
 const DONE  = '✔';
 const SKIP  = '⊘';
 const FAIL  = '✗';
-const WAIT  = '⋯';
+const WAIT  = '○';
 
 /** Print a checklist step inline (no trailing newline so we can update it). */
 function stepStart(label: string, detail = '') {
   process.stdout.write(`  ${WAIT} ${label.padEnd(14)}${detail}`);
 }
 
-/** Finish a checklist step: overwrite the current line. */
+/** Finish a checklist step: overwrite the current line, clearing any leftover chars. */
 function stepDone(label: string, detail: string, icon = DONE) {
-  process.stdout.write(`\r  ${icon} ${label.padEnd(14)}${detail}\n`);
+  const content = `  ${icon} ${label.padEnd(14)}${detail}`;
+  // Clear entire line then write the final content
+  process.stdout.write(`\r\x1b[2K${content}\n`);
 }
 
 async function main() {
