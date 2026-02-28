@@ -362,6 +362,10 @@ pre code {
   white-space: nowrap;
 }
 
+#model-label:empty {
+  display: none;
+}
+
 #prompt-input {
   display: block;
   flex-grow: 1;

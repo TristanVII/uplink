@@ -134,6 +134,7 @@ async function initializeClient() {
       if (currentModelId) {
         const model = models.find((m) => m.modelId === currentModelId);
         modelLabel.textContent = model?.name ?? currentModelId;
+        modelLabel.hidden = false;
       }
     },
     onPermissionRequest: (request, respond) => {
@@ -200,7 +201,10 @@ sendBtn.addEventListener('click', async () => {
       promptText = remainingPrompt;
     } else if (parsed.command === '/model' && parsed.arg) {
       const name = findModelName(parsed.arg);
-      if (name) modelLabel.textContent = name;
+      if (name) {
+        modelLabel.textContent = name;
+        modelLabel.hidden = false;
+      }
     }
   }
 
