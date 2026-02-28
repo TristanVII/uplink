@@ -641,6 +641,8 @@ export function startServer(options: ServerOptions): ServerResult {
     activeSocket = null;
   };
 
-  return { server, sessionToken, close, initializePromise: initializePromise!.then(() => {}) };
+  const exposedInit = initializePromise!.then(() => {});
+  exposedInit.catch(() => {}); // prevent unhandled rejection if caller doesn't await
+  return { server, sessionToken, close, initializePromise: exposedInit };
 }
 
