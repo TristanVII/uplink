@@ -111,4 +111,29 @@ describe('SessionsModal', () => {
       expect(card.classList.contains('disabled')).toBe(true);
     }
   });
+
+  it('shows session ID when title is null', () => {
+    render(<SessionsModal />);
+    const sessions: SessionInfo[] = [
+      { id: 'abc-123', cwd: '/test', title: null, updatedAt: new Date().toISOString() },
+    ];
+    act(() => {
+      openSessionsModal(sessions, true, () => {}, () => {});
+    });
+
+    expect(screen.getByText('abc-123')).toBeTruthy();
+  });
+
+  it('truncates long titles', () => {
+    render(<SessionsModal />);
+    const longTitle = 'A'.repeat(100);
+    const sessions: SessionInfo[] = [
+      { id: 's-long', cwd: '/test', title: longTitle, updatedAt: new Date().toISOString() },
+    ];
+    act(() => {
+      openSessionsModal(sessions, true, () => {}, () => {});
+    });
+
+    expect(screen.getByText('A'.repeat(77) + '…')).toBeTruthy();
+  });
 });

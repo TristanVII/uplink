@@ -521,6 +521,86 @@ describe('ACP bridge full-flow integration', () => {
   );
 });
 
+// ── Session listing and rename tests ─────────────────────────────────
+describe('Session listing and rename', () => {
+  it(
+    'lists newly created sessions via /api/sessions',
+    async () => {
+      const ws = await connectWS();
+      const sessionId = await bootstrapSession(ws);
+
+      const res = await fetch(`http://127.0.0.1:${port}/api/sessions?cwd=${encodeURIComponent(process.cwd())}`);
+      expect(res.ok).toBe(true);
+      const data = await res.json() as { sessions: Array<{ id: string; title: string | null }> };
+
+      // The mock agent's session/list returns empty, so all entries come
+      // from the in-memory supplement populated by session/new.
+      const found = data.sessions.find(s => s.id === sessionId);
+      expect(found).toBeDefined();
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'requires cwd parameter for /api/sessions',
+    async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/api/sessions`);
+      expect(res.status).toBe(400);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'renames a session via uplink/rename_session',
+    async () => {
+      const ws = await connectWS();
+      const sessionId = await bootstrapSession(ws);
+
+      // Rename the session
+      const renameResult = await rpcRequest<{ ok: boolean }>(
+        ws,
+        'uplink/rename_session',
+        { sessionId, summary: 'My Renamed Session' },
+      );
+      expect(renameResult.ok).toBe(true);
+
+      // Verify the title is updated in the session list
+      const res = await fetch(`http://127.0.0.1:${port}/api/sessions?cwd=${encodeURIComponent(process.cwd())}`);
+      const data = await res.json() as { sessions: Array<{ id: string; title: string | null }> };
+      const found = data.sessions.find(s => s.id === sessionId);
+      expect(found?.title).toBe('My Renamed Session');
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'returns error when rename is missing parameters',
+    async () => {
+      const ws = await connectWS();
+      await bootstrapSession(ws);
+
+      await expect(
+        rpcRequest(ws, 'uplink/rename_session', { sessionId: 'some-id' }),
+      ).rejects.toThrow('Missing sessionId or summary');
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'filters sessions by cwd',
+    async () => {
+      const ws = await connectWS();
+      await bootstrapSession(ws);
+
+      // Query with a non-matching cwd should return no sessions
+      const res = await fetch(`http://127.0.0.1:${port}/api/sessions?cwd=${encodeURIComponent('/nonexistent/path')}`);
+      const data = await res.json() as { sessions: Array<{ id: string }> };
+      expect(data.sessions).toHaveLength(0);
+    },
+    TEST_TIMEOUT,
+  );
+});
+
 // ── Eager initialize tests ───────────────────────────────────────────
 describe('Eager initialize', () => {
   it(
