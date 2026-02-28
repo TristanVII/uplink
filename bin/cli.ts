@@ -90,22 +90,37 @@ const SKIP  = '⊘';
 const FAIL  = '✗';
 const WAIT  = '○';
 
-/** Print a checklist step inline (no trailing newline so we can update it). */
-function stepStart(label: string, detail = '') {
-  process.stdout.write(`  ${WAIT} ${label.padEnd(14)}${detail}`);
-}
-
-/** Finish a checklist step: overwrite the current line, clearing any leftover chars. */
-function stepDone(label: string, detail: string, icon = DONE) {
-  const content = `  ${icon} ${label.padEnd(14)}${detail}`;
-  // Clear entire line then write the final content
-  process.stdout.write(`\r\x1b[2K${content}\n`);
-}
+const STEP_LABELS = ['Server', 'Tunnel', 'Copilot CLI'];
 
 async function main() {
   console.log();
   console.log('  🛰  Copilot Uplink');
   console.log();
+
+  if (useTunnel && opts.allowAnonymous) {
+    console.log('  ⚠ Anonymous tunnel access — anyone with the URL can control Copilot.');
+    console.log();
+  }
+
+  // Print all checklist lines upfront, then update in-place as each completes
+  for (const label of STEP_LABELS) {
+    console.log(`  ${WAIT} ${label.padEnd(14)}`);
+  }
+
+  let extraLines = 0;
+
+  /** Overwrite a checklist line in-place using ANSI cursor movement. */
+  function updateStep(index: number, detail: string, icon = DONE) {
+    const linesUp = (STEP_LABELS.length - index) + extraLines;
+    const content = `  ${icon} ${STEP_LABELS[index].padEnd(14)}${detail}`;
+    process.stdout.write(`\x1b[${linesUp}A\r\x1b[2K${content}\x1b[${linesUp}B\r`);
+  }
+
+  /** Append a line below the checklist (tracks cursor offset). */
+  function printBelow(text = '') {
+    console.log(text);
+    extraLines++;
+  }
 
   const staticDir = resolveStaticDir();
   const cwd = resolve(opts.cwd);
@@ -130,7 +145,6 @@ async function main() {
   }
 
   // ── Step 1: Server ──────────────────────────────────────────────────
-  stepStart('Server');
   const result = startServer({ port: listenPort, staticDir, cwd });
   await listenOrThrow(result.server, listenPort);
 
@@ -141,15 +155,11 @@ async function main() {
   }
 
   const actualPort = addr.port;
-  stepDone('Server', `http://localhost:${actualPort}`);
+  updateStep(0, `http://localhost:${actualPort}`);
 
   // ── Step 2: Tunnel ──────────────────────────────────────────────────
   let tunnel: TunnelResult | null = null;
   if (useTunnel) {
-    if (opts.allowAnonymous) {
-      console.log(`  ⚠ Anonymous tunnel access — anyone with the URL can control Copilot.`);
-    }
-    stepStart('Tunnel');
     try {
       let tunnelId = opts.tunnelId;
 
@@ -165,38 +175,40 @@ async function main() {
       }
 
       tunnel = await startTunnel({ port: actualPort, tunnelId, allowAnonymous: opts.allowAnonymous });
-      stepDone('Tunnel', tunnel.url);
+      updateStep(1, tunnel.url);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      stepDone('Tunnel', `failed — ${message}`, FAIL);
+      updateStep(1, `failed — ${message}`, FAIL);
     }
   } else {
-    stepDone('Tunnel', 'skipped (use --tunnel to enable)', SKIP);
+    updateStep(1, 'skipped (use --tunnel to enable)', SKIP);
   }
 
-  // ── Step 3: Copilot CLI ─────────────────────────────────────────────
-  stepStart('Copilot CLI', 'initializing...');
+  // ── QR code — render as soon as tunnel URL is available ─────────────
+  if (tunnel) {
+    printBelow();
+    printBelow('  Scan to connect:');
+    qrcode.generate(tunnel.url, { small: true }, (code) => {
+      const trimmed = code.endsWith('\n') ? code.slice(0, -1) : code;
+      for (const line of trimmed.split('\n')) {
+        printBelow(line);
+      }
+    });
+  }
+
+  // ── Step 3: Copilot CLI (init already running in background) ────────
   const initStart = Date.now();
   try {
     await initializePromise;
     const elapsed = ((Date.now() - initStart) / 1000).toFixed(1);
-    stepDone('Copilot CLI', `ready (${elapsed}s)`);
+    updateStep(2, `ready (${elapsed}s)`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    stepDone('Copilot CLI', `failed — ${message}`, FAIL);
+    updateStep(2, `failed — ${message}`, FAIL);
   }
 
-  // ── QR code (if tunnel) ─────────────────────────────────────────────
-  if (tunnel) {
-    console.log();
-    console.log('  Scan to connect:');
-    qrcode.generate(tunnel.url, { small: true }, (code) => {
-      console.log(code);
-    });
-  }
-
-  console.log();
-  console.log('  Press Ctrl+C to stop');
+  printBelow();
+  printBelow('  Press Ctrl+C to stop');
 
   let shuttingDown = false;
   const shutdown = () => {
