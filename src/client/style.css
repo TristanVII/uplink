@@ -1031,6 +1031,44 @@ html.light .hljs-deletion { color: #d20f39; background-color: rgb(210 15 57 / 10
   color: var(--danger);
 }
 
+/* Tab status indicator dot */
+.tab-status {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tab-status-idle {
+  background-color: var(--text-secondary);
+}
+
+.tab-status-running {
+  background-color: var(--success);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+.tab-status-connecting {
+  background-color: var(--warning, #f9e2af);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+.tab-status-disconnected {
+  background-color: var(--danger);
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.3;
+  }
+}
+
 /* Chat Panels Container */
 #chat-panels {
   display: contents;

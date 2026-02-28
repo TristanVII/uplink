@@ -410,6 +410,10 @@ function addTabButton(slotId: string, cwd: string): void {
   btn.className = 'tab';
   btn.dataset.tab = slotId;
 
+  const statusDot = document.createElement('span');
+  statusDot.className = 'tab-status tab-status-connecting';
+  statusDot.title = 'Connecting…';
+
   const label = document.createElement('span');
   label.textContent = `📁 ${folderName}`;
   label.title = cwd;
@@ -422,9 +426,31 @@ function addTabButton(slotId: string, cwd: string): void {
     closeSession(slotId);
   });
 
-  btn.append(label, closeBtn);
+  btn.append(statusDot, label, closeBtn);
   btn.addEventListener('click', () => switchTab(slotId));
   tabBar.appendChild(btn);
+}
+
+function updateTabStatus(slotId: string, state: ConnectionState): void {
+  const btn = tabBar.querySelector<HTMLButtonElement>(`[data-tab="${slotId}"]`);
+  if (!btn) return;
+  const dot = btn.querySelector<HTMLElement>('.tab-status');
+  if (!dot) return;
+
+  // Map state to visual class
+  if (state === 'prompting') {
+    dot.className = 'tab-status tab-status-running';
+    dot.title = 'Running…';
+  } else if (state === 'ready') {
+    dot.className = 'tab-status tab-status-idle';
+    dot.title = 'Idle';
+  } else if (state === 'connecting' || state === 'initializing') {
+    dot.className = 'tab-status tab-status-connecting';
+    dot.title = 'Connecting…';
+  } else {
+    dot.className = 'tab-status tab-status-disconnected';
+    dot.title = 'Disconnected';
+  }
 }
 
 function removeTabButton(slotId: string): void {
@@ -473,6 +499,7 @@ function createClientForSlot(slotId: string, cwd: string): AcpClient {
     wsUrl,
     cwd,
     onStateChange: (state) => {
+      updateTabStatus(slotId, state);
       if (activeTab === slotId) {
         updateConnectionStatus(state);
       }
