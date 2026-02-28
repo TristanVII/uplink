@@ -422,7 +422,7 @@ describe('ACP bridge full-flow integration', () => {
   );
 
   it(
-    'reuses bridge on reconnect and caches initialize response',
+    'reuses bridge on reconnect and resumes the same session',
     async () => {
       // First connection — cold start
       const ws1 = await connectWS();
@@ -433,7 +433,7 @@ describe('ACP bridge full-flow integration', () => {
       );
       expect(initResult1.protocolVersion).toBe(1);
 
-      const sessionResult = await rpcRequest<{ sessionId: string }>(ws1, 'session/new', {
+      const sessionResult = await rpcRequest<{ sessionId: string; models?: unknown }>(ws1, 'session/new', {
         cwd: process.cwd(),
         mcpServers: [],
       });
@@ -453,24 +453,20 @@ describe('ACP bridge full-flow integration', () => {
       expect(initResult2.protocolVersion).toBe(initResult1.protocolVersion);
       expect(initResult2.agentInfo?.name).toBe(initResult1.agentInfo?.name);
 
-      // Session load will fail ("already loaded") — matches real copilot behavior
-      // when the bridge is reused and the session is still in memory
-      await expect(
-        rpcRequest<Record<string, unknown>>(ws2, 'session/load', {
+      // Session load should succeed — server intercepts for the active session
+      const loadResult = await rpcRequest<{ sessionId: string; models?: { availableModels: unknown[] } }>(
+        ws2, 'session/load', {
           sessionId,
           cwd: process.cwd(),
           mcpServers: [],
-        }),
-      ).rejects.toThrow('already loaded');
+        },
+      );
+      // Same session resumed, with models included
+      expect(loadResult.sessionId).toBe(sessionId);
+      expect(loadResult.models?.availableModels).toBeDefined();
 
-      // Fall back to session/new (fast on warm bridge)
-      const newSession = await rpcRequest<{ sessionId: string }>(ws2, 'session/new', {
-        cwd: process.cwd(),
-        mcpServers: [],
-      });
-
-      // Prompt should work on the reused bridge
-      const { requestId, promise } = promptWithCollection(ws2, newSession.sessionId, 'simple after reconnect');
+      // Prompt should work on the resumed session
+      const { requestId, promise } = promptWithCollection(ws2, sessionId, 'simple after reconnect');
       const messages = await promise;
       expectStopReason(messages, requestId, 'end_turn');
     },

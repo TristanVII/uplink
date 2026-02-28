@@ -203,8 +203,8 @@ describe('AcpClient Bug Fixes', () => {
       expect(calls).toContain('session/load');
       expect(calls).not.toContain('session/new');
       expect(client.currentSessionId).toBe('sess-to-resume');
-      // localStorage key should be cleared after use
-      expect(global.localStorage.removeItem).toHaveBeenCalledWith('uplink-resume-session');
+      // Resume key should be preserved for future refreshes
+      expect(global.localStorage.removeItem).not.toHaveBeenCalledWith('uplink-resume-session');
     });
 
     it('should fall back to session/new when session/load fails', async () => {
@@ -229,6 +229,8 @@ describe('AcpClient Bug Fixes', () => {
       const calls = sendRequestSpy.mock.calls.map(c => c[0]);
       expect(calls).toContain('session/new');
       expect(client.currentSessionId).toBe('sess-new');
+      // Stale resume key should be cleaned up on failure
+      expect(global.localStorage.removeItem).toHaveBeenCalledWith('uplink-resume-session');
     });
 
     it('should skip session/load when agent does not support it', async () => {
@@ -250,8 +252,6 @@ describe('AcpClient Bug Fixes', () => {
       const calls = sendRequestSpy.mock.calls.map(c => c[0]);
       expect(calls).not.toContain('session/load');
       expect(calls).toContain('session/new');
-      // Resume key should still be cleaned up
-      expect(global.localStorage.removeItem).toHaveBeenCalledWith('uplink-resume-session');
     });
   });
 });

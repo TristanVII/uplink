@@ -271,27 +271,27 @@ export class AcpClient {
 
     this.agentCapabilities = initResult.agentCapabilities ?? {};
 
-    // Try to resume a saved session (e.g., after page reload or model change)
+    // Try to resume a saved session (e.g., after page reload)
     const resumeId = localStorage.getItem('uplink-resume-session');
-    if (resumeId) {
-      // Always clear the resume key — it's single-use
-      localStorage.removeItem('uplink-resume-session');
+    if (resumeId && this.agentCapabilities.loadSession) {
+      try {
+        const tLoad = performance.now();
+        const loadResult = await this.sendRequest<SessionNewResult>("session/load", {
+          sessionId: resumeId,
+          cwd: this.options.cwd,
+          mcpServers: [],
+        });
+        console.debug(`[timing] session/load: ${(performance.now() - tLoad).toFixed(0)}ms`);
+        console.debug(`[timing] total initializeSession: ${(performance.now() - t0).toFixed(0)}ms`);
+        this.sessionId = resumeId;
 
-      if (this.agentCapabilities.loadSession) {
-        try {
-          const tLoad = performance.now();
-          await this.sendRequest("session/load", {
-            sessionId: resumeId,
-            cwd: this.options.cwd,
-            mcpServers: [],
-          });
-          console.debug(`[timing] session/load: ${(performance.now() - tLoad).toFixed(0)}ms`);
-          console.debug(`[timing] total initializeSession: ${(performance.now() - t0).toFixed(0)}ms`);
-          this.sessionId = resumeId;
-          return;
-        } catch {
-          // Resume failed — fall through to new session
+        if (loadResult?.models?.availableModels) {
+          this.options.onModelsAvailable?.(loadResult.models.availableModels, loadResult.models.currentModelId);
         }
+        return;
+      } catch {
+        // Resume failed — clear stale key and fall through to new session
+        localStorage.removeItem('uplink-resume-session');
       }
     }
 

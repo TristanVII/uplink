@@ -135,8 +135,11 @@ export interface SessionLoadParams {
   mcpServers: McpServer[];
 }
 
-/** Result of the `session/load` request (always null). */
-export type SessionLoadResult = null;
+/** Result of the `session/load` request.
+ * When the server intercepts session/load for the active session,
+ * it returns the cached session/new result (sessionId, models, modes).
+ * The raw copilot CLI returns {} on success. */
+export type SessionLoadResult = SessionNewResult | Record<string, never> | null;
 
 // ─── session/prompt ───────────────────────────────────────────────────
 
