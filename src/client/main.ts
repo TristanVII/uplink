@@ -65,6 +65,13 @@ let activeTab: TabId = 'directories';
 let activeDirCwd: string | null = null;
 let sessionToken: string = '';
 
+/** Per-directory state: client + conversation preserved across tab switches. */
+interface DirContext {
+  client: AcpClient;
+  conversation: Conversation;
+}
+const dirContexts = new Map<string, DirContext>();
+
 /** Extract short display name from path (last 2 segments). */
 function shortDirName(dir: string): string {
   const parts = dir.replace(/\\/g, '/').split('/').filter(Boolean);
@@ -119,30 +126,76 @@ function switchTab(tab: TabId): void {
   renderTabBar();
 }
 
-async function connectToDirectory(dir: string): Promise<void> {
-  // If same dir, just switch to chat tab
-  if (dir === activeDirCwd && client) {
-    switchTab('chat');
-    return;
-  }
+/** Get or create a DirContext for a directory, connecting the AcpClient. */
+function getOrCreateDirContext(dir: string): DirContext {
+  let ctx = dirContexts.get(dir);
+  if (ctx) return ctx;
 
-  // Disconnect existing client
-  if (client) {
-    client.disconnect();
-    client = null;
-  }
-
-  activeDirCwd = dir;
-  clearConversation();
-  updateDirLabel(dir);
-
-  // Create a new client for this directory
+  const conv = new Conversation();
   const wsUrl = `${wsProtocol}//${location.host}/ws?token=${encodeURIComponent(sessionToken)}&cwd=${encodeURIComponent(dir)}`;
-  client = createAcpClient(wsUrl, dir);
+  const acpClient = new AcpClient({
+    wsUrl,
+    cwd: dir,
+    onStateChange: (state) => {
+      // Only update UI if this dir is the active one
+      if (activeDirCwd === dir) updateConnectionStatus(state, conv);
+    },
+    onSessionUpdate: (update) => {
+      conv.handleSessionUpdate(update);
+    },
+    onModelsAvailable: (models, currentModelId) => {
+      if (activeDirCwd === dir) {
+        setAvailableModels(models);
+        if (currentModelId) {
+          const model = models.find((m) => m.modelId === currentModelId);
+          modelLabel.textContent = model?.name ?? currentModelId;
+          modelLabel.hidden = false;
+        }
+      }
+    },
+    onPermissionRequest: (request, respond) => {
+      const autoApproveId = yoloMode
+        ? request.options.find(
+            (o) => o.kind === 'allow_once' || o.kind === 'allow_always',
+          )?.optionId
+        : undefined;
+
+      showPermissionRequest(
+        conv,
+        request.id,
+        request.toolCall.toolCallId,
+        request.toolCall.title ?? 'Unknown action',
+        request.options,
+        respond,
+        autoApproveId,
+      );
+    },
+    onError: (error) => console.error('ACP error:', error),
+  });
+
+  ctx = { client: acpClient, conversation: conv };
+  dirContexts.set(dir, ctx);
+  return ctx;
+}
+
+async function connectToDirectory(dir: string): Promise<void> {
+  const ctx = getOrCreateDirContext(dir);
+  activeDirCwd = dir;
   clientCwd = dir;
+  client = ctx.client;
+  activeConversation = ctx.conversation;
+  updateDirLabel(dir);
+  renderChat();
 
   switchTab('chat');
-  await client.connect();
+
+  // Connect if not already connected
+  if (ctx.client.connectionState === 'disconnected') {
+    await ctx.client.connect();
+  } else {
+    // Already connected — just refresh the connection status UI
+    updateConnectionStatus(ctx.client.connectionState, ctx.conversation);
+  }
 }
 
 // ─── Service Worker ───────────────────────────────────────────────────
@@ -155,18 +208,16 @@ if ('serviceWorker' in navigator) {
 
 // ─── UI Components ────────────────────────────────────────────────────
 
-const conversation = new Conversation();
+let activeConversation = new Conversation();
 
 // Mount all timeline components into a single chatContainer.
-// ChatList renders messages, and child components (tool calls, permissions,
-// plans) are passed as children so they appear inline in the message flow.
 const chatContainer = document.createElement('div');
 chatContainer.className = 'chat-container chat-messages';
 chatArea.appendChild(chatContainer);
 
 function renderChat(): void {
   render(
-    h(ChatList, { conversation, scrollContainer: chatArea }),
+    h(ChatList, { conversation: activeConversation, scrollContainer: chatArea }),
     chatContainer,
   );
 }
@@ -179,8 +230,8 @@ render(h(SessionsModal, {}), sessionsModalContainer);
 
 /** Clear all conversation state when session changes. */
 function clearConversation(): void {
-  conversation.clear();
-  cancelAllPermissions(conversation);
+  activeConversation.clear();
+  cancelAllPermissions(activeConversation);
 }
 
 // ─── WebSocket / ACP Client ──────────────────────────────────────────
@@ -190,7 +241,7 @@ const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 let client: AcpClient | null = null;
 let clientCwd: string = '';
 
-function updateConnectionStatus(state: ConnectionState): void {
+function updateConnectionStatus(state: ConnectionState, conv?: Conversation): void {
   const el = document.getElementById('connection-status')!;
   // Show "ready" instead of "prompting" since we have the dots indicator
   const displayState = state === 'prompting' ? 'ready' : state;
@@ -207,16 +258,18 @@ function updateConnectionStatus(state: ConnectionState): void {
   sendBtn.hidden = state === 'prompting';
   cancelBtn.hidden = state !== 'prompting';
 
-  conversation.isPrompting = state === 'prompting';
-  conversation.notify();
+  const c = conv ?? activeConversation;
+  c.isPrompting = state === 'prompting';
+  c.notify();
 }
 
+/** Create an AcpClient for single-dir mode (uses activeConversation directly). */
 function createAcpClient(wsUrl: string, cwd: string): AcpClient {
   return new AcpClient({
     wsUrl,
     cwd,
     onStateChange: (state) => updateConnectionStatus(state),
-    onSessionUpdate: (update) => conversation.handleSessionUpdate(update),
+    onSessionUpdate: (update) => activeConversation.handleSessionUpdate(update),
     onModelsAvailable: (models, currentModelId) => {
       setAvailableModels(models);
       if (currentModelId) {
@@ -233,7 +286,7 @@ function createAcpClient(wsUrl: string, cwd: string): AcpClient {
         : undefined;
 
       showPermissionRequest(
-        conversation,
+        activeConversation,
         request.id,
         request.toolCall.toolCallId,
         request.toolCall.title ?? 'Unknown action',
@@ -262,7 +315,7 @@ sendBtn.addEventListener('click', async () => {
     const command = text.slice(1).trim();
     if (!command) return;
 
-    conversation.addUserMessage(`$ ${command}`);
+    activeConversation.addUserMessage(`$ ${command}`);
 
     try {
       const result = await client.sendRawRequest<{
@@ -270,10 +323,10 @@ sendBtn.addEventListener('click', async () => {
         stderr: string;
         exitCode: number;
       }>('uplink/shell', { command });
-      conversation.addShellResult(command, result.stdout, result.stderr, result.exitCode);
+      activeConversation.addShellResult(command, result.stdout, result.stderr, result.exitCode);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      conversation.addShellResult(command, '', errorMessage, 1);
+      activeConversation.addShellResult(command, '', errorMessage, 1);
     }
     return;
   }
@@ -296,7 +349,7 @@ sendBtn.addEventListener('click', async () => {
     }
   }
 
-  conversation.addUserMessage(text);
+  activeConversation.addUserMessage(text);
 
   // In plan mode, prefix the message to instruct the agent to plan
   if (currentMode === 'plan' && !text.startsWith('/')) {
@@ -311,11 +364,11 @@ sendBtn.addEventListener('click', async () => {
     let turns = 0;
     while (currentMode === 'autopilot' && stopReason === 'end_turn' && turns < MAX_AUTOPILOT_TURNS) {
       turns++;
-      conversation.addUserMessage('continue');
+      activeConversation.addUserMessage('continue');
       stopReason = await client.prompt('continue');
     }
     if (turns >= MAX_AUTOPILOT_TURNS) {
-      conversation.addSystemMessage('Autopilot stopped: reached maximum turns');
+      activeConversation.addSystemMessage('Autopilot stopped: reached maximum turns');
     }
   } catch (err) {
     console.error('Prompt error:', err);
@@ -324,11 +377,11 @@ sendBtn.addEventListener('click', async () => {
 
 cancelBtn.addEventListener('click', () => {
   client?.cancel();
-  cancelAllPermissions(conversation);
+  cancelAllPermissions(activeConversation);
   // Stop autopilot auto-continue loop by switching back to chat mode
   if (currentMode === 'autopilot') {
     applyMode('chat');
-    conversation.addSystemMessage('Autopilot cancelled');
+    activeConversation.addSystemMessage('Autopilot cancelled');
   }
 });
 
@@ -461,13 +514,13 @@ function handleClientCommand(command: string, arg: string): string | undefined {
   switch (command) {
     case '/theme':
       applyTheme(arg || 'auto');
-      conversation.addSystemMessage(`Theme set to ${arg || 'auto'}`);
+      activeConversation.addSystemMessage(`Theme set to ${arg || 'auto'}`);
       return undefined;
     case '/yolo': {
       const on = arg === '' || arg === 'on';
       yoloMode = on;
       localStorage.setItem('uplink-yolo', String(yoloMode));
-      conversation.addSystemMessage(`Auto-approve ${yoloMode ? 'enabled' : 'disabled'}`);
+      activeConversation.addSystemMessage(`Auto-approve ${yoloMode ? 'enabled' : 'disabled'}`);
       return undefined;
     }
     case '/session':
@@ -475,15 +528,15 @@ function handleClientCommand(command: string, arg: string): string | undefined {
       return undefined;
     case '/agent':
       applyMode('chat');
-      conversation.addSystemMessage('Switched to agent mode');
+      activeConversation.addSystemMessage('Switched to agent mode');
       return arg || undefined;
     case '/plan':
       applyMode('plan');
-      conversation.addSystemMessage('Switched to plan mode');
+      activeConversation.addSystemMessage('Switched to plan mode');
       return arg || undefined;
     case '/autopilot':
       applyMode('autopilot');
-      conversation.addSystemMessage('Switched to autopilot mode');
+      activeConversation.addSystemMessage('Switched to autopilot mode');
       return arg || undefined;
   }
   return undefined;
@@ -510,10 +563,10 @@ async function handleSessionCommand(arg: string): Promise<void> {
         sessionId: client.currentSessionId,
         summary: name,
       });
-      conversation.addSystemMessage(`Session renamed to "${name}"`);
+      activeConversation.addSystemMessage(`Session renamed to "${name}"`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      conversation.addSystemMessage(`Failed to rename: ${msg}`);
+      activeConversation.addSystemMessage(`Failed to rename: ${msg}`);
     }
     return;
   }
