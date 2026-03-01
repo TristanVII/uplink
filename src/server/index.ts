@@ -23,6 +23,7 @@ export interface ServerOptions {
   copilotCommand?: string;        // default: process.env.COPILOT_COMMAND || 'copilot'
   copilotArgs?: string[];         // default: ['--acp', '--stdio']
   cwd?: string;                   // working directory for copilot
+  dirs?: string[];                // multi-dir mode: allowed directories
 }
 
 export interface ServerResult {
