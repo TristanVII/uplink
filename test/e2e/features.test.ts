@@ -142,6 +142,47 @@ test('/navigate path autocomplete lists available child directories', async ({ p
   await expect(palette.locator('.command-palette-label').filter({ hasText: 'src/client/' })).toHaveCount(1);
 });
 
+test('/navigate session suggestion click executes immediately', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  const input = page.locator('#prompt-input');
+  const palette = page.locator('.command-palette');
+
+  // Session suggestions should execute directly when clicked.
+  await input.fill('/navigate ');
+  await expect(palette).toBeVisible();
+  await palette.locator('.command-palette-item').first().click();
+  await expect(page.locator('.message.system').filter({ hasText: 'Navigated to' })).toBeVisible({ timeout: 10000 });
+});
+
+test('/navigate path completion click only fills input', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  const input = page.locator('#prompt-input');
+  const palette = page.locator('.command-palette');
+  const navigatedMessage = page.locator('.message.system').filter({ hasText: 'Navigated to' });
+
+  // Path completions should fill the command, not auto-run it.
+  await input.fill('/navigate src/');
+  await expect(palette).toBeVisible();
+  await palette.locator('.command-palette-label').filter({ hasText: 'src/client/' }).first().click();
+  await expect(input).toHaveValue('/navigate src/client/');
+  await expect(navigatedMessage).toHaveCount(0);
+  await expect(page.locator('.session-dot')).toHaveCount(0);
+});
+
+test('/navigate invalid path shows friendly error', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  // Invalid paths should show a clear system error message.
+  await page.locator('#prompt-input').fill('/navigate /definitely/not/a/real/path');
+  await page.locator('#send-btn').click();
+  await expect(page.locator('.message.system').filter({ hasText: 'Navigate failed:' })).toBeVisible({ timeout: 10000 });
+});
+
 test('session dots persist across page reload', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });

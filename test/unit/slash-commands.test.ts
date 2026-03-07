@@ -68,6 +68,20 @@ describe('slash-commands', () => {
       expect(parsed).toBeDefined();
       expect(parsed!.complete).toBe(true);
     });
+
+    it('/navigate with only spaces is not complete', () => {
+      // Edge case: users can accidentally send whitespace-only path args.
+      const parsed = parseSlashCommand('/navigate    ');
+      expect(parsed).toBeDefined();
+      expect(parsed!.complete).toBe(false);
+    });
+
+    it('/navigate with an absolute path is complete', () => {
+      // Edge case: absolute paths should be treated as valid args.
+      const parsed = parseSlashCommand('/navigate /Users/csx/build/uplink');
+      expect(parsed).toBeDefined();
+      expect(parsed!.complete).toBe(true);
+    });
   });
 
   describe('mode commands are client-side', () => {
@@ -128,6 +142,15 @@ describe('slash-commands', () => {
 
     it('returns empty for non-slash text', () => {
       expect(getCompletions('hello')).toEqual([]);
+    });
+
+    it('treats unknown slash commands as CLI passthrough commands', () => {
+      // Edge case: unknown commands should still execute as raw slash prompts.
+      const parsed = parseSlashCommand('/some-unknown-command foo');
+      expect(parsed).toBeDefined();
+      expect(parsed!.kind).toBe('cli');
+      expect(parsed!.complete).toBe(true);
+      expect(parsed!.command).toBe('/some-unknown-command');
     });
   });
 

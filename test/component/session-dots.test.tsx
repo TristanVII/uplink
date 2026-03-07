@@ -38,4 +38,24 @@ describe('SessionDots', () => {
     expect(dots[1].className).toContain('session-dot-status-busy');
     expect(dots[2].className).toContain('session-dot-status-initializing');
   });
+
+  it('falls back to disconnected state when status is missing', () => {
+    // Edge case: newly restored sessions may not have a status yet.
+    render(
+      <SessionDots
+        sessions={[{ cwd: '/tmp/unknown', label: 'unknown', title: '/tmp/unknown' }]}
+        activeCwd="/tmp/unknown"
+        onSelect={() => {}}
+      />,
+    );
+    expect(screen.getByRole('tab').className).toContain('session-dot-status-disconnected');
+  });
+
+  it('sets accessible label and title for each dot', () => {
+    // Edge case: dot-only UI still needs readable labels for assistive tech.
+    render(<SessionDots sessions={sessions} activeCwd={sessions[0].cwd} onSelect={() => {}} />);
+    const first = screen.getAllByRole('tab')[0];
+    expect(first.getAttribute('aria-label')).toBe('Session project-a');
+    expect(first.getAttribute('title')).toBe('/tmp/project-a');
+  });
 });

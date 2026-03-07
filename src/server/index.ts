@@ -2,7 +2,7 @@ import express from 'express';
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { exec } from 'node:child_process';
-import { readdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, existsSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import { Bridge, type BridgeOptions } from './bridge.js';
 import path from 'node:path';
@@ -150,15 +150,92 @@ export function startServer(options: ServerOptions): ServerResult {
   const multiDir = configuredDirs.length > 0;
   const allowedDirs = new Set(configuredDirs);
 
-  /** Validate that a cwd is allowed. In single-dir mode, only resolvedCwd. */
+  function isExistingDirectory(cwd: string): boolean {
+    try {
+      return existsSync(cwd) && statSync(cwd).isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  function resolveRequestedCwd(requested: string, base?: string): string {
+    return path.resolve(base ? path.resolve(base) : resolvedCwd, requested);
+  }
+
+  function splitPathPrefix(prefix: string): { dirPrefix: string; fragment: string } {
+    const normalized = prefix.replace(/\\/g, '/');
+    if (normalized.length === 0) return { dirPrefix: '', fragment: '' };
+    if (normalized.endsWith('/')) return { dirPrefix: normalized, fragment: '' };
+
+    const slashIdx = normalized.lastIndexOf('/');
+    if (slashIdx === -1) return { dirPrefix: '', fragment: normalized };
+    return {
+      dirPrefix: normalized.slice(0, slashIdx + 1),
+      fragment: normalized.slice(slashIdx + 1),
+    };
+  }
+
+  /** Validate that a cwd is allowed. In single-dir mode, any existing directory is allowed. */
   function isAllowedCwd(cwd: string): boolean {
-    if (!multiDir) return cwd === resolvedCwd;
+    if (!isExistingDirectory(cwd)) return false;
+    if (!multiDir) return true;
     return allowedDirs.has(cwd);
   }
 
   // Token endpoint (must be before SPA fallback)
   app.get('/api/token', (_req, res) => {
     res.json({ token: sessionToken, cwd: resolvedCwd });
+  });
+
+  app.get('/api/resolve-path', (req, res) => {
+    const requestedPath = (req.query.path as string | undefined)?.trim();
+    if (!requestedPath) {
+      res.status(400).json({ error: 'Missing required query parameter: path' });
+      return;
+    }
+
+    const base = (req.query.base as string | undefined) ?? resolvedCwd;
+    const cwd = resolveRequestedCwd(requestedPath, base);
+    if (!isAllowedCwd(cwd)) {
+      res.status(404).json({ error: 'Directory not found or not allowed' });
+      return;
+    }
+
+    res.json({ cwd });
+  });
+
+  app.get('/api/path-completions', (req, res) => {
+    const rawPrefix = (req.query.prefix as string | undefined) ?? '';
+    const base = (req.query.base as string | undefined) ?? resolvedCwd;
+    const { dirPrefix, fragment } = splitPathPrefix(rawPrefix);
+
+    const listRoot = resolveRequestedCwd(dirPrefix || '.', base);
+    if (!isExistingDirectory(listRoot)) {
+      res.json({ completions: [] });
+      return;
+    }
+
+    const fragmentLower = fragment.toLowerCase();
+    const completions = readdirSync(listRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .filter((entry) => entry.name.toLowerCase().startsWith(fragmentLower))
+      .map((entry) => {
+        const cwd = path.join(listRoot, entry.name);
+        if (!isAllowedCwd(cwd)) return null;
+        return {
+          path: `${dirPrefix}${entry.name}/`,
+          cwd,
+        };
+      })
+      .filter((entry): entry is { path: string; cwd: string } => entry !== null)
+      .sort((a, b) => a.path.localeCompare(b.path))
+      .slice(0, 100)
+      .map((entry) => ({
+        path: entry.path.replace(/\\/g, '/'),
+        cwd: entry.cwd,
+      }));
+
+    res.json({ completions });
   });
 
   // Config endpoint — tells the client about multi-dir mode
@@ -169,9 +246,11 @@ export function startServer(options: ServerOptions): ServerResult {
   // Sessions endpoint — forwards session/list to the CLI bridge and merges
   // with in-memory supplement for sessions created during this bridge lifetime.
   app.get('/api/sessions', async (req, res) => {
-    const cwd = req.query.cwd as string | undefined;
-    if (!cwd) {
-      res.status(400).json({ error: 'Missing required query parameter: cwd' });
+    const requestedCwd = req.query.cwd as string | undefined;
+    const base = req.query.base as string | undefined;
+    const cwd = requestedCwd ? resolveRequestedCwd(requestedCwd, base) : resolvedCwd;
+    if (!isAllowedCwd(cwd)) {
+      res.json({ sessions: [] });
       return;
     }
 
@@ -233,6 +312,16 @@ export function startServer(options: ServerOptions): ServerResult {
   // Resolve bridge command and args once (same for all directories)
   let bridgeCommand: string;
   let bridgeArgs: string[];
+  const launchCwd = process.cwd();
+  const absolutizeCommandPart = (part: string): string => {
+    if (!part || path.isAbsolute(part)) return part;
+    const looksLikePath =
+      part.startsWith('./') || part.startsWith('../') || part.includes('/') || part.includes('\\');
+    if (!looksLikePath) return part;
+    const candidate = path.resolve(launchCwd, part);
+    return existsSync(candidate) ? candidate : part;
+  };
+
   const envCommand = !options.copilotCommand ? process.env.COPILOT_COMMAND : undefined;
   if (envCommand) {
     const parts = envCommand.split(' ');
@@ -242,6 +331,8 @@ export function startServer(options: ServerOptions): ServerResult {
     bridgeCommand = options.copilotCommand ?? 'copilot';
     bridgeArgs = options.copilotArgs ?? ['--acp', '--stdio'];
   }
+  bridgeCommand = absolutizeCommandPart(bridgeCommand);
+  bridgeArgs = bridgeArgs.map(absolutizeCommandPart);
   const bridgeEnvObj: Record<string, string | undefined> = {};
   const skillsDirs = process.env.COPILOT_SKILLS_DIRS ?? discoverPluginSkillsDirs();
   if (skillsDirs) {
@@ -434,7 +525,11 @@ export function startServer(options: ServerOptions): ServerResult {
     }
 
     // Determine the cwd for this connection
-    const requestedCwd = url.searchParams.get('cwd') || resolvedCwd;
+    const requestedCwdParam = url.searchParams.get('cwd');
+    const baseCwdParam = url.searchParams.get('base');
+    const requestedCwd = requestedCwdParam
+      ? resolveRequestedCwd(requestedCwdParam, baseCwdParam ?? resolvedCwd)
+      : resolvedCwd;
     if (!isAllowedCwd(requestedCwd)) {
       ws.close(4003, 'Directory not allowed');
       return;
@@ -696,4 +791,3 @@ export function startServer(options: ServerOptions): ServerResult {
   exposedInit.catch(() => {}); // prevent unhandled rejection if caller doesn't await
   return { server, sessionToken, close, initializePromise: exposedInit };
 }
-

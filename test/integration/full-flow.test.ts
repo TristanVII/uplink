@@ -10,6 +10,7 @@ import {
 import WebSocket from 'ws';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { resolve as resolvePath } from 'node:path';
 import { startServer } from '../../src/server/index.js';
 import type {
   JsonRpcMessage,
@@ -542,10 +543,15 @@ describe('Session listing and rename', () => {
   );
 
   it(
-    'requires cwd parameter for /api/sessions',
+    'defaults to server cwd when /api/sessions has no cwd parameter',
     async () => {
+      const ws = await connectWS();
+      const sessionId = await bootstrapSession(ws);
+
       const res = await fetch(`http://127.0.0.1:${port}/api/sessions`);
-      expect(res.status).toBe(400);
+      expect(res.ok).toBe(true);
+      const data = await res.json() as { sessions: Array<{ id: string }> };
+      expect(data.sessions.some(s => s.id === sessionId)).toBe(true);
     },
     TEST_TIMEOUT,
   );
@@ -596,6 +602,110 @@ describe('Session listing and rename', () => {
       const res = await fetch(`http://127.0.0.1:${port}/api/sessions?cwd=${encodeURIComponent('/nonexistent/path')}`);
       const data = await res.json() as { sessions: Array<{ id: string }> };
       expect(data.sessions).toHaveLength(0);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'resolves relative paths via /api/resolve-path',
+    async () => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/api/resolve-path?path=${encodeURIComponent('src')}&base=${encodeURIComponent(process.cwd())}`,
+      );
+      expect(res.ok).toBe(true);
+      const data = await res.json() as { cwd: string };
+      expect(data.cwd).toBe(resolvePath(process.cwd(), 'src'));
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'returns 400 when /api/resolve-path is missing path parameter',
+    async () => {
+      // Edge case: client calls endpoint without a path.
+      const res = await fetch(`http://127.0.0.1:${port}/api/resolve-path`);
+      expect(res.status).toBe(400);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'preserves absolute paths via /api/resolve-path',
+    async () => {
+      // Edge case: already-absolute paths should resolve to themselves.
+      const absolute = resolvePath(process.cwd(), 'src/client');
+      const res = await fetch(
+        `http://127.0.0.1:${port}/api/resolve-path?path=${encodeURIComponent(absolute)}`,
+      );
+      expect(res.ok).toBe(true);
+      const data = await res.json() as { cwd: string };
+      expect(data.cwd).toBe(absolute);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'returns 404 for missing paths via /api/resolve-path',
+    async () => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/api/resolve-path?path=${encodeURIComponent('/definitely/not/a/real/path')}`,
+      );
+      expect(res.status).toBe(404);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'returns directory completions for /api/path-completions',
+    async () => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/api/path-completions?prefix=${encodeURIComponent('src/')}&base=${encodeURIComponent(process.cwd())}`,
+      );
+      expect(res.ok).toBe(true);
+      const data = await res.json() as { completions: Array<{ path: string; cwd: string }> };
+      expect(data.completions.some((c) => c.path === 'src/client/')).toBe(true);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'supports partial segment matching for /api/path-completions',
+    async () => {
+      // Edge case: typing "src/cl" should suggest "src/client/".
+      const res = await fetch(
+        `http://127.0.0.1:${port}/api/path-completions?prefix=${encodeURIComponent('src/cl')}&base=${encodeURIComponent(process.cwd())}`,
+      );
+      expect(res.ok).toBe(true);
+      const data = await res.json() as { completions: Array<{ path: string; cwd: string }> };
+      expect(data.completions.some((c) => c.path === 'src/client/')).toBe(true);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'returns only directory-style completions for /api/path-completions',
+    async () => {
+      // Edge case: file names should never appear in directory completion results.
+      const res = await fetch(
+        `http://127.0.0.1:${port}/api/path-completions?prefix=${encodeURIComponent('src/client/')}&base=${encodeURIComponent(process.cwd())}`,
+      );
+      expect(res.ok).toBe(true);
+      const data = await res.json() as { completions: Array<{ path: string }> };
+      expect(data.completions.every((c) => c.path.endsWith('/'))).toBe(true);
+      expect(data.completions.some((c) => c.path.includes('main.ts'))).toBe(false);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'returns empty completions for unknown /api/path-completions root',
+    async () => {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/api/path-completions?prefix=${encodeURIComponent('/definitely/not/a/real/path/')}`,
+      );
+      expect(res.ok).toBe(true);
+      const data = await res.json() as { completions: Array<{ path: string }> };
+      expect(data.completions).toEqual([]);
     },
     TEST_TIMEOUT,
   );
