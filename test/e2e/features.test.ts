@@ -82,7 +82,7 @@ test('slash command palette appears on / keystroke', async ({ page }) => {
   await expect(palette).toBeVisible();
 
   // Should show available commands
-  await expect(palette.locator('.command-palette-item')).toHaveCount(7); // 7 commands
+  await expect(palette.locator('.command-palette-item')).toHaveCount(8); // 8 commands
 
   // Type more to filter
   await input.fill('/mo');
@@ -115,6 +115,47 @@ test('clicking a command shows sub-options in palette', async ({ page }) => {
   await expect(palette).toBeVisible();
   await expect(palette.locator('.command-palette-item')).toHaveCount(2);
   await expect(palette.locator('.command-palette-label').first()).toContainText('Rename');
+});
+
+test('/navigate shows current session suggestions by default', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  const input = page.locator('#prompt-input');
+  const palette = page.locator('.command-palette');
+
+  await input.fill('/navigate ');
+  await expect(palette).toBeVisible();
+  await expect(palette.locator('.command-palette-item')).toHaveCount(1);
+  await expect(palette.locator('.command-palette-detail').first()).toContainText(process.cwd());
+});
+
+test('/navigate path autocomplete lists available child directories', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  const input = page.locator('#prompt-input');
+  const palette = page.locator('.command-palette');
+
+  await input.fill('/navigate src/');
+  await expect(palette).toBeVisible();
+  await expect(palette.locator('.command-palette-label').filter({ hasText: 'src/client/' })).toHaveCount(1);
+});
+
+test('session dots persist across page reload', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+
+  const input = page.locator('#prompt-input');
+  await input.fill('/navigate src/client');
+  await page.locator('#send-btn').click();
+  await expect(page.locator('.message.system').filter({ hasText: 'Navigated to' })).toBeVisible({ timeout: 10000 });
+
+  await expect(page.locator('.session-dot')).toHaveCount(2);
+
+  await page.reload();
+  await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
+  await expect(page.locator('.session-dot')).toHaveCount(2);
 });
 
 test('/model shows available models in autocomplete', async ({ page }) => {
@@ -218,10 +259,14 @@ test('session is preserved across /model commands', async ({ page }) => {
   await page.locator('#send-btn').click();
   await expect(page.locator('.message.agent').first()).toBeVisible({ timeout: 10000 });
 
+  const readResumeSessionId = () =>
+    page.evaluate(() => {
+      const key = Object.keys(localStorage).find((k) => k.startsWith('uplink-resume-session'));
+      return key ? localStorage.getItem(key) : null;
+    });
+
   // Verify session is in localStorage
-  const sessionBefore = await page.evaluate(() =>
-    localStorage.getItem('uplink-resume-session'),
-  );
+  const sessionBefore = await readResumeSessionId();
   expect(sessionBefore).toBeTruthy();
 
   // Send /model command — should NOT disconnect/reconnect
@@ -229,9 +274,7 @@ test('session is preserved across /model commands', async ({ page }) => {
   await page.locator('#send-btn').click();
 
   // Session should still be the same
-  const sessionAfter = await page.evaluate(() =>
-    localStorage.getItem('uplink-resume-session'),
-  );
+  const sessionAfter = await readResumeSessionId();
   expect(sessionAfter).toBe(sessionBefore);
 });
 
@@ -240,9 +283,10 @@ test('session is persisted to localStorage for page reload resume', async ({ pag
   await expect(page.locator('#send-btn')).toBeEnabled({ timeout: 10000 });
 
   // After connecting, uplink-resume-session should be saved in localStorage
-  const sessionId = await page.evaluate(() =>
-    localStorage.getItem('uplink-resume-session'),
-  );
+  const sessionId = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => k.startsWith('uplink-resume-session'));
+    return key ? localStorage.getItem(key) : null;
+  });
   expect(sessionId).toBeTruthy();
   expect(sessionId).toMatch(/^mock-session-/);
 });
@@ -599,7 +643,7 @@ test('thinking content blocks render as collapsible reasoning', async ({ page })
   await page.locator('#send-btn').click();
 
   // Wait for the agent response (follows the thinking blocks)
-  const agentMsg = page.locator('.message.agent').first();
+  const agentMsg = page.locator('.message.agent').last();
   await expect(agentMsg).toBeVisible({ timeout: 10000 });
   await expect(agentMsg).toContainText('thinking it through');
 

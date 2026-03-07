@@ -5,21 +5,20 @@ import { showPermissionRequest, cancelAllPermissions } from './ui/permission.js'
 import { fetchSessions, openSessionsModal, SessionsModal } from './ui/sessions.js';
 import { CommandPalette, type PaletteItem } from './ui/command-palette.js';
 import { getCompletions, parseSlashCommand, setAvailableModels, findModelName } from './slash-commands.js';
-import { TabBar, type TabId } from './ui/tab-bar.js';
-import { DirectoriesView } from './ui/directories.js';
+import { SessionDots, type SessionDotStatus } from './ui/session-dots.js';
 import { render, h } from 'preact';
 import 'material-symbols/outlined.css';
 
 // ─── DOM References ───────────────────────────────────────────────────
 
 const chatArea = document.getElementById('chat-area')!;
-const directoriesMount = document.getElementById('directories-mount')!;
-const tabBarMount = document.getElementById('tab-bar-mount')!;
+const sessionDotsMount = document.getElementById('session-dots-mount')!;
+const swipeHintLeft = document.getElementById('session-swipe-hint-left')!;
+const swipeHintRight = document.getElementById('session-swipe-hint-right')!;
 const promptInput = document.getElementById('prompt-input') as HTMLTextAreaElement;
 const sendBtn = document.getElementById('send-btn') as HTMLButtonElement;
 const cancelBtn = document.getElementById('cancel-btn') as HTMLButtonElement;
 const modelLabel = document.getElementById('model-label')!;
-const inputArea = document.getElementById('input-area')!;
 const dirLabel = document.getElementById('dir-label')!;
 
 let yoloMode = localStorage.getItem('uplink-yolo') === 'true';
@@ -57,20 +56,62 @@ function initTheme(): void {
 
 initTheme();
 
-// ─── Multi-Dir State ──────────────────────────────────────────────────
+// ─── Session Navigation State ─────────────────────────────────────────
 
-let multiDirMode = false;
-let configuredDirs: string[] = [];
-let activeTab: TabId = 'directories';
+let sessionCwds: string[] = [];
 let activeDirCwd: string | null = null;
 let sessionToken: string = '';
+let sessionSwitchInFlight = false;
+const sessionCwdsStorageKey = `uplink-session-cwds:${location.host}`;
+const activeCwdStorageKey = `uplink-active-cwd:${location.host}`;
 
-/** Per-directory state: client + conversation preserved across tab switches. */
+/** Per-directory state: client + conversation preserved across session switches. */
 interface DirContext {
   client: AcpClient;
   conversation: Conversation;
 }
 const dirContexts = new Map<string, DirContext>();
+const sessionDotStatuses = new Map<string, SessionDotStatus>();
+
+function toSessionDotStatus(state: ConnectionState): SessionDotStatus {
+  if (state === 'prompting') return 'busy';
+  if (state === 'ready') return 'idle';
+  if (state === 'connecting' || state === 'initializing') return 'initializing';
+  return 'disconnected';
+}
+
+function persistSessionCwds(): void {
+  sessionCwds = [...new Set(sessionCwds)];
+  localStorage.setItem(sessionCwdsStorageKey, JSON.stringify(sessionCwds));
+}
+
+function persistActiveCwd(): void {
+  if (activeDirCwd) {
+    localStorage.setItem(activeCwdStorageKey, activeDirCwd);
+  }
+}
+
+function loadPersistedSessionCwds(defaultCwd: string): string[] {
+  const raw = localStorage.getItem(sessionCwdsStorageKey);
+  if (!raw) return [defaultCwd];
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [defaultCwd];
+    const stored = parsed.filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+    return [...new Set([...stored, defaultCwd])];
+  } catch {
+    return [defaultCwd];
+  }
+}
+
+function loadPersistedActiveCwd(fallbackCwd: string): string {
+  const saved = localStorage.getItem(activeCwdStorageKey);
+  if (saved && sessionCwds.includes(saved)) {
+    return saved;
+  }
+  return fallbackCwd;
+}
 
 /** Extract short display name from path (last 2 segments). */
 function shortDirName(dir: string): string {
@@ -79,7 +120,7 @@ function shortDirName(dir: string): string {
 }
 
 function updateDirLabel(dir: string | null): void {
-  if (!multiDirMode || !dir) {
+  if (!dir) {
     dirLabel.hidden = true;
     return;
   }
@@ -88,42 +129,50 @@ function updateDirLabel(dir: string | null): void {
   dirLabel.hidden = false;
 }
 
-function renderTabBar(): void {
-  if (!multiDirMode) return;
-  render(
-    h(TabBar, {
-      activeTab,
-      onTabChange: switchTab,
-      chatDirName: activeDirCwd ? shortDirName(activeDirCwd) : undefined,
-    }),
-    tabBarMount,
-  );
-}
+function renderSessionDots(): void {
+  const hasMultipleSessions = sessionCwds.length > 1;
+  swipeHintLeft.hidden = !hasMultipleSessions;
+  swipeHintRight.hidden = !hasMultipleSessions;
 
-function renderDirectories(): void {
-  render(
-    h(DirectoriesView, {
-      dirs: configuredDirs,
-      activeCwd: activeDirCwd ?? undefined,
-      onSelect: (dir: string) => connectToDirectory(dir),
-    }),
-    directoriesMount,
-  );
-}
-
-function switchTab(tab: TabId): void {
-  activeTab = tab;
-  if (tab === 'directories') {
-    chatArea.hidden = true;
-    inputArea.hidden = true;
-    directoriesMount.hidden = false;
-    renderDirectories();
-  } else {
-    chatArea.hidden = false;
-    inputArea.hidden = false;
-    directoriesMount.hidden = true;
+  if (!hasMultipleSessions) {
+    sessionDotsMount.hidden = true;
+    render(null, sessionDotsMount);
+    return;
   }
-  renderTabBar();
+
+  sessionDotsMount.hidden = false;
+  render(
+    h(SessionDots, {
+      sessions: sessionCwds.map((cwd) => ({
+        cwd,
+        label: shortDirName(cwd),
+        title: cwd,
+        status: sessionDotStatuses.get(cwd) ?? 'disconnected',
+      })),
+      activeCwd: activeDirCwd ?? undefined,
+      onSelect: (cwd: string) => {
+        void connectToDirectory(cwd);
+      },
+    }),
+    sessionDotsMount,
+  );
+}
+
+async function switchSessionByOffset(offset: number): Promise<void> {
+  if (sessionSwitchInFlight || !activeDirCwd || sessionCwds.length <= 1) return;
+  const currentIndex = sessionCwds.indexOf(activeDirCwd);
+  if (currentIndex === -1) return;
+
+  const nextIndex = (currentIndex + offset + sessionCwds.length) % sessionCwds.length;
+  const nextCwd = sessionCwds[nextIndex];
+  if (!nextCwd || nextCwd === activeDirCwd) return;
+
+  sessionSwitchInFlight = true;
+  try {
+    await connectToDirectory(nextCwd);
+  } finally {
+    sessionSwitchInFlight = false;
+  }
 }
 
 /** Get or create a DirContext for a directory, connecting the AcpClient. */
@@ -137,6 +186,8 @@ function getOrCreateDirContext(dir: string): DirContext {
     wsUrl,
     cwd: dir,
     onStateChange: (state) => {
+      sessionDotStatuses.set(dir, toSessionDotStatus(state));
+      renderSessionDots();
       // Only update UI if this dir is the active one
       if (activeDirCwd === dir) updateConnectionStatus(state, conv);
     },
@@ -175,19 +226,25 @@ function getOrCreateDirContext(dir: string): DirContext {
 
   ctx = { client: acpClient, conversation: conv };
   dirContexts.set(dir, ctx);
+  sessionDotStatuses.set(dir, toSessionDotStatus(acpClient.connectionState));
+  if (!sessionCwds.includes(dir)) {
+    sessionCwds = [...sessionCwds, dir];
+    persistSessionCwds();
+  }
+  renderSessionDots();
   return ctx;
 }
 
-async function connectToDirectory(dir: string): Promise<void> {
+async function connectToDirectory(dir: string): Promise<DirContext> {
   const ctx = getOrCreateDirContext(dir);
   activeDirCwd = dir;
+  persistActiveCwd();
   clientCwd = dir;
   client = ctx.client;
   activeConversation = ctx.conversation;
   updateDirLabel(dir);
   renderChat();
-
-  switchTab('chat');
+  renderSessionDots();
 
   // Connect if not already connected
   if (ctx.client.connectionState === 'disconnected') {
@@ -196,6 +253,8 @@ async function connectToDirectory(dir: string): Promise<void> {
     // Already connected — just refresh the connection status UI
     updateConnectionStatus(ctx.client.connectionState, ctx.conversation);
   }
+
+  return ctx;
 }
 
 // ─── Service Worker ───────────────────────────────────────────────────
@@ -222,6 +281,39 @@ function renderChat(): void {
   );
 }
 renderChat();
+
+// Swipe left/right on mobile chat area to switch between session panes.
+let swipeStartX = 0;
+let swipeStartY = 0;
+let isTrackingSwipe = false;
+const SWIPE_THRESHOLD_PX = 48;
+
+chatArea.addEventListener('touchstart', (e) => {
+  if (sessionCwds.length <= 1 || e.touches.length !== 1) return;
+  const touch = e.touches[0];
+  swipeStartX = touch.clientX;
+  swipeStartY = touch.clientY;
+  isTrackingSwipe = true;
+}, { passive: true });
+
+chatArea.addEventListener('touchcancel', () => {
+  isTrackingSwipe = false;
+}, { passive: true });
+
+chatArea.addEventListener('touchend', (e) => {
+  if (!isTrackingSwipe || sessionCwds.length <= 1) return;
+  isTrackingSwipe = false;
+
+  const touch = e.changedTouches[0];
+  if (!touch) return;
+
+  const dx = touch.clientX - swipeStartX;
+  const dy = touch.clientY - swipeStartY;
+  if (Math.abs(dx) < SWIPE_THRESHOLD_PX) return;
+  if (Math.abs(dx) < Math.abs(dy) * 1.2) return;
+
+  void switchSessionByOffset(dx < 0 ? 1 : -1);
+}, { passive: true });
 
 // Mount Preact sessions modal on body
 const sessionsModalContainer = document.createElement('div');
@@ -263,42 +355,6 @@ function updateConnectionStatus(state: ConnectionState, conv?: Conversation): vo
   c.notify();
 }
 
-/** Create an AcpClient for single-dir mode (uses activeConversation directly). */
-function createAcpClient(wsUrl: string, cwd: string): AcpClient {
-  return new AcpClient({
-    wsUrl,
-    cwd,
-    onStateChange: (state) => updateConnectionStatus(state),
-    onSessionUpdate: (update) => activeConversation.handleSessionUpdate(update),
-    onModelsAvailable: (models, currentModelId) => {
-      setAvailableModels(models);
-      if (currentModelId) {
-        const model = models.find((m) => m.modelId === currentModelId);
-        modelLabel.textContent = model?.name ?? currentModelId;
-        modelLabel.hidden = false;
-      }
-    },
-    onPermissionRequest: (request, respond) => {
-      const autoApproveId = yoloMode
-        ? request.options.find(
-            (o) => o.kind === 'allow_once' || o.kind === 'allow_always',
-          )?.optionId
-        : undefined;
-
-      showPermissionRequest(
-        activeConversation,
-        request.id,
-        request.toolCall.toolCallId,
-        request.toolCall.title ?? 'Unknown action',
-        request.options,
-        respond,
-        autoApproveId,
-      );
-    },
-    onError: (error) => console.error('ACP error:', error),
-  });
-}
-
 // ─── Input Handling ───────────────────────────────────────────────────
 
 sendBtn.addEventListener('click', async () => {
@@ -336,7 +392,7 @@ sendBtn.addEventListener('click', async () => {
   const parsed = parseSlashCommand(text);
   if (parsed) {
     if (parsed.kind === 'client') {
-      const remainingPrompt = handleClientCommand(parsed.command, parsed.arg);
+      const remainingPrompt = await handleClientCommand(parsed.command, parsed.arg);
       if (!remainingPrompt) return;
       // Mode command with a prompt — send the prompt portion
       promptText = remainingPrompt;
@@ -451,7 +507,7 @@ promptInput.addEventListener('input', () => {
 
   // Show/update command palette when typing /
   if (promptInput.value.startsWith('/')) {
-    showPalette();
+    void showPalette();
   } else {
     hidePalette();
   }
@@ -463,6 +519,7 @@ const paletteMount = document.getElementById('palette-mount')!;
 let paletteItems: PaletteItem[] = [];
 let paletteSelectedIndex = 0;
 let paletteVisible = false;
+let paletteQueryId = 0;
 
 function renderPalette(): void {
   if (!paletteVisible || paletteItems.length === 0) {
@@ -480,9 +537,59 @@ function renderPalette(): void {
   );
 }
 
-function showPalette(): void {
+function getNavigateSessionCompletions(): PaletteItem[] {
+  if (sessionCwds.length === 0) return [];
+
+  const ordered = [...sessionCwds].sort((a, b) => {
+    if (a === activeDirCwd) return -1;
+    if (b === activeDirCwd) return 1;
+    return 0;
+  });
+
+  return ordered.map((cwd) => ({
+    label: shortDirName(cwd),
+    detail: cwd,
+    fill: `/navigate ${cwd}`,
+    executeOnSelect: true,
+  }));
+}
+
+async function getNavigatePathCompletions(arg: string): Promise<PaletteItem[]> {
+  const base = clientCwd || activeDirCwd || '';
+  const res = await fetch(
+    `/api/path-completions?prefix=${encodeURIComponent(arg)}&base=${encodeURIComponent(base)}`,
+  );
+  if (!res.ok) return [];
+
+  const data = await res.json() as { completions?: Array<{ path: string; cwd: string }> };
+  return (data.completions ?? []).map((entry) => ({
+    label: entry.path,
+    detail: entry.cwd,
+    fill: `/navigate ${entry.path}`,
+    executeOnSelect: false,
+  }));
+}
+
+async function showPalette(): Promise<void> {
   const text = promptInput.value;
-  paletteItems = getCompletions(text);
+  const queryId = ++paletteQueryId;
+  let items = getCompletions(text);
+
+  if (text.startsWith('/navigate ')) {
+    const arg = text.slice('/navigate '.length);
+    if (arg.trim().length === 0) {
+      items = getNavigateSessionCompletions();
+    } else {
+      try {
+        items = await getNavigatePathCompletions(arg);
+      } catch {
+        items = [];
+      }
+      if (queryId !== paletteQueryId) return;
+    }
+  }
+
+  paletteItems = items;
   paletteSelectedIndex = 0;
   paletteVisible = paletteItems.length > 0;
   renderPalette();
@@ -497,9 +604,10 @@ function acceptCompletion(item: PaletteItem): void {
   promptInput.value = item.fill;
   promptInput.focus();
   updateBorderPreview();
-  if (item.fill.endsWith(' ')) {
+  const shouldExecute = item.executeOnSelect ?? !item.fill.endsWith(' ');
+  if (!shouldExecute) {
     // Top-level command selected — show sub-options or let user type more
-    showPalette();
+    void showPalette();
   } else {
     // Concrete sub-option selected — execute
     hidePalette();
@@ -510,7 +618,7 @@ function acceptCompletion(item: PaletteItem): void {
 // ─── Slash Command Handlers ───────────────────────────────────────────
 
 /** Handle a client-side command. Returns a remaining prompt to send, or undefined. */
-function handleClientCommand(command: string, arg: string): string | undefined {
+async function handleClientCommand(command: string, arg: string): Promise<string | undefined> {
   switch (command) {
     case '/theme':
       applyTheme(arg || 'auto');
@@ -524,7 +632,19 @@ function handleClientCommand(command: string, arg: string): string | undefined {
       return undefined;
     }
     case '/session':
-      handleSessionCommand(arg);
+      await handleSessionCommand(arg);
+      return undefined;
+    case '/navigate':
+      if (!arg) {
+        activeConversation.addSystemMessage('Usage: /navigate <path>');
+        return undefined;
+      }
+      try {
+        await navigateToPath(arg);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        activeConversation.addSystemMessage(`Navigate failed: ${msg}`);
+      }
       return undefined;
     case '/agent':
       applyMode('chat');
@@ -540,6 +660,30 @@ function handleClientCommand(command: string, arg: string): string | undefined {
       return arg || undefined;
   }
   return undefined;
+}
+
+async function resolveNavigatePath(targetPath: string): Promise<string> {
+  const base = clientCwd || activeDirCwd || '';
+  const res = await fetch(
+    `/api/resolve-path?path=${encodeURIComponent(targetPath)}&base=${encodeURIComponent(base)}`,
+  );
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(data.error ?? `Path resolution failed (${res.status})`);
+  }
+
+  const data = await res.json() as { cwd: string };
+  return data.cwd;
+}
+
+async function navigateToPath(targetPath: string): Promise<void> {
+  const cwd = await resolveNavigatePath(targetPath);
+  await connectToDirectory(cwd);
+  if (!client) return;
+
+  clearConversation();
+  await client.newSession();
+  activeConversation.addSystemMessage(`Navigated to ${cwd}`);
 }
 
 async function handleSessionCommand(arg: string): Promise<void> {
@@ -620,32 +764,23 @@ if ('virtualKeyboard' in navigator) {
 updateConnectionStatus('disconnected');
 
 async function boot(): Promise<void> {
-  // Fetch token and config in parallel
-  const [tokenRes, configRes] = await Promise.all([
-    fetch('/api/token'),
-    fetch('/api/config'),
-  ]);
+  const tokenRes = await fetch('/api/token');
   const { token, cwd } = await tokenRes.json();
-  const config = await configRes.json();
 
   sessionToken = token;
-  clientCwd = cwd;
+  sessionCwds = loadPersistedSessionCwds(cwd);
+  persistSessionCwds();
+  renderSessionDots();
 
-  if (config.multiDir && config.dirs.length > 0) {
-    // Multi-directory mode
-    multiDirMode = true;
-    configuredDirs = config.dirs;
-    document.getElementById('app')!.classList.add('has-tab-bar');
-
-    // Start on directories tab
-    switchTab('directories');
-    renderTabBar();
-  } else {
-    // Single-directory mode (original behavior)
-    const wsUrl = `${wsProtocol}//${location.host}/ws?token=${encodeURIComponent(token)}`;
-    client = createAcpClient(wsUrl, cwd);
-    activeDirCwd = cwd;
-    await client.connect();
+  const initialCwd = loadPersistedActiveCwd(cwd);
+  try {
+    await connectToDirectory(initialCwd);
+  } catch (err) {
+    if (initialCwd !== cwd) {
+      await connectToDirectory(cwd);
+    } else {
+      throw err;
+    }
   }
 }
 

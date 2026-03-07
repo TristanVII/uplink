@@ -56,6 +56,18 @@ describe('slash-commands', () => {
       expect(parsed).toBeDefined();
       expect(parsed!.complete).toBe(true);
     });
+
+    it('/navigate is not complete without a path argument', () => {
+      const parsed = parseSlashCommand('/navigate');
+      expect(parsed).toBeDefined();
+      expect(parsed!.complete).toBe(false);
+    });
+
+    it('/navigate ../other is complete', () => {
+      const parsed = parseSlashCommand('/navigate ../other');
+      expect(parsed).toBeDefined();
+      expect(parsed!.complete).toBe(true);
+    });
   });
 
   describe('mode commands are client-side', () => {
@@ -87,6 +99,12 @@ describe('slash-commands', () => {
       expect(parsed).toBeDefined();
       expect(parsed!.kind).toBe('client');
       expect(parsed!.arg).toBe('fix the bug');
+    });
+
+    it('/navigate is a client command', () => {
+      const cmd = commands.find((c) => c.name === 'navigate');
+      expect(cmd!.kind).toBe('client');
+      expect(cmd!.requiresArg).toBe(true);
     });
   });
 
